@@ -1,0 +1,57 @@
+version: '3.8'
+
+services:
+  # 1. PostgresSQL
+  db-postgres:
+    image: postgres:15-alpine
+    container_name: pg_encrypted
+    environment:
+      POSTGRES_USER: ${DB_USER}
+      POSTGRES_PASSWORD: ${DB_PASS}
+      POSTGRES_DB: ${DB_NAME}
+    ports:
+      - "${DB_EXTERNAL_PORT}:5432" 
+    networks:
+      - private_network
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+
+  # 2. Elasticsearch
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:8.11.1
+    container_name: elasticsearch
+    environment:
+      - discovery.type=single-node # Membuat Elastic berjalan sebagai 1 server mandiri (bukan cluster) agar ringan. (untuk test lokal)
+      - xpack.security.enabled=false # Dimatikan agar tidak perlu sertifikat SSL (Untuk test lokal)
+      
+      # Di production sesuaikan dengan kapasitas RAM (Best practice set maksimal 50% dari total ram server)
+      - "ES_JAVA_OPTS=-Xms512m -Xmx512m" # Membatasi memori Java (JVM Heap) sebesar 512MB agar RAM laptop tidak habis (OOM).
+    # ports:
+    #   - "9200:9200"
+    networks:
+      - private_network
+    volumes:
+      - esdata:/usr/share/elasticsearch/data
+  
+  # 3. Golang Backend API
+  backend-api:
+    build: . # Membaca file Dockerfile yang ada di folder ini
+    container_name: backend_api
+    ports:
+      - "8080:8080"
+    env_file:
+      - .env
+    networks:
+      - private_network
+    depends_on:
+      - db-postgres
+      - elasticsearch
+
+volumes:
+  pgdata:
+  esdata:
+
+# Simulasi jaringan privat internal (komunikasi antar container)
+networks:
+  private_network:
+    driver: bridge

@@ -1,0 +1,23 @@
+task6-iso-encryption/
+│
+├── cmd/
+│   └── api/
+│       └── main.go              # Entry point aplikasi (Inisialisasi server & DB)
+│
+├── internal/                    # Kode inti aplikasi (tidak bisa di-import project luar)
+│   ├── config/
+│   │   └── config.go            # Logika load file .env
+│   │
+│   ├── crypto/
+│   │   └── crypto.go            # Fungsi Enkripsi AES-256-GCM & Hashing SHA-256
+│   │
+│   ├── handlers/
+│   │   └── karyawan_handler.go  # Logic request/response API (Endpoint Postman)
+│   │
+│   └── repository/
+│       └── karyawan_repo.go     # File khusus berisi query SQL (Insert, Select)
+│
+├── .env                         # File rahasia (DB, Kunci Enkripsi)
+├── docker-compose.yml           # Konfigurasi PostgreSQL Docker
+├── go.mod                       # Modul Go
+└── go.sum                       # Checksum dependensi Go

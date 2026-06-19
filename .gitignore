@@ -1,0 +1,19 @@
+# 1. Jangan pernah upload rahasia/password!
+.env
+
+# 2. Jangan upload data volume milik Docker
+pgdata/
+esdata/
+*data/
+
+# 3. Jangan upload file build/binari Golang
+*.exe
+*.test
+/bin/
+
+# 4. Folder module Go
+/vendor/
+
+# 5. File sampah OS
+.DS_Store
+Thumbs.db
