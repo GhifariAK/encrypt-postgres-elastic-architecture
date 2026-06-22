@@ -86,12 +86,12 @@ func main() {
 	http.HandleFunc("/api/karyawan/update", karyawanHandler.UpdateKaryawanHandler)             // UPDATE
 	http.HandleFunc("/api/karyawan/delete", karyawanHandler.DeleteKaryawanHandler)             // DELETE
 	http.HandleFunc("/api/karyawan/search/nik", karyawanHandler.GetKaryawanByNIKHandler)       // SEARCH VIA ES
-	http.HandleFunc("/api/karyawan/search/nama", karyawanHandler.GetKaryawanByNameHandler)     // SEARCH BY NAMA
+	http.HandleFunc("/api/karyawan/search/name/es", karyawanHandler.GetKaryawanByNameHandler)  // SEARCH BY NAMA
 	http.HandleFunc("/api/karyawan/sorted/nik", karyawanHandler.GetKaryawanSortedByNIKHandler) // GET SORTED BY NIK
 	http.HandleFunc("/api/karyawan/stats/provider", karyawanHandler.GetProviderStatsHandler)   // STATS PROVIDER
 	http.HandleFunc("/api/karyawan/sync", karyawanHandler.SyncKaryawanHandler)                 // SYNC POSTGRES KE ELASTIC (BACKGROUND)
 	http.HandleFunc("/api/karyawan/seed", karyawanHandler.RunSeederHandler)                    // SEEDER DUMMY DATA
-	http.HandleFunc("/api/karyawan/search/pg", karyawanHandler.SearchPGHandler)                // SEARCH BY NAMA VIA POSTGRES
+	http.HandleFunc("/api/karyawan/search/name/pg", karyawanHandler.SearchPGHandler)           // SEARCH BY NAMA VIA POSTGRES
 
 	// Menjalankan Server HTTP
 	port := ":8080"
