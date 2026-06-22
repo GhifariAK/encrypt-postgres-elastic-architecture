@@ -207,8 +207,11 @@ func (s *KaryawanService) GetKaryawanByPhone(phoneQuery string) ([]postgres.Kary
 }
 
 // GetKaryawanByName mengambil data berdasarkan query nama (Typo Tolerant)
-func (s *KaryawanService) GetKaryawanByName(namaQuery string) ([]postgres.Karyawan, error) {
-	ids, err := elastic.SearchNama(s.esClient, namaQuery)
+func (s *KaryawanService) GetKaryawanByName(namaQuery string, page int, limit int) ([]postgres.Karyawan, error) {
+	// Hitung offset
+	offset := (page - 1) * limit
+
+	ids, err := elastic.SearchNama(s.esClient, namaQuery, limit, offset)
 	if err != nil {
 		return nil, err
 	}
@@ -379,8 +382,11 @@ func (s *KaryawanService) SeedDummyData() {
 }
 
 // SearchNamaPG mencari nama murni lewat Postgres untuk pembanding performa
-func (s *KaryawanService) SearchNamaPG(namaQuery string) ([]postgres.Karyawan, error) {
-	karyawans, err := postgres.SearchKaryawanByNamePG(s.db, namaQuery)
+func (s *KaryawanService) SearchNamaPG(namaQuery string, page int, limit int) ([]postgres.Karyawan, error) {
+	// Hitung offset matematika
+	offset := (page - 1) * limit
+
+	karyawans, err := postgres.SearchKaryawanByNamePG(s.db, namaQuery, limit, offset)
 	if err != nil {
 		return nil, err
 	}

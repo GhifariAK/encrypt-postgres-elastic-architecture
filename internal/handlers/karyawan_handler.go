@@ -256,7 +256,21 @@ func (h *KaryawanHandler) GetKaryawanByNameHandler(w http.ResponseWriter, r *htt
 		return
 	}
 
-	karyawans, err := h.service.GetKaryawanByName(namaQuery)
+	// Tangkap parameter pagination
+	pageStr := r.URL.Query().Get("page")
+	limitStr := r.URL.Query().Get("limit")
+
+	page, err := strconv.Atoi(pageStr)
+	if err != nil || page <= 0 {
+		page = 1
+	}
+
+	limit, err := strconv.Atoi(limitStr)
+	if err != nil || limit <= 0 {
+		limit = 10
+	}
+
+	karyawans, err := h.service.GetKaryawanByName(namaQuery, page, limit)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -353,7 +367,21 @@ func (h *KaryawanHandler) SearchPGHandler(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	karyawans, err := h.service.SearchNamaPG(namaQuery)
+	// Tangkap parameter pagination
+	pageStr := r.URL.Query().Get("page")
+	limitStr := r.URL.Query().Get("limit")
+
+	page, err := strconv.Atoi(pageStr)
+	if err != nil || page <= 0 {
+		page = 1 // Default halaman 1
+	}
+
+	limit, err := strconv.Atoi(limitStr)
+	if err != nil || limit <= 0 {
+		limit = 10 // Default 10 data
+	}
+
+	karyawans, err := h.service.SearchNamaPG(namaQuery, page, limit)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return

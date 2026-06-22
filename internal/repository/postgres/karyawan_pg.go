@@ -166,15 +166,17 @@ func DeleteKaryawan(db *sql.DB, id int) error {
 }
 
 // SearchKaryawanByNamePG mencari data langsung ke Postgres menggunakan ILIKE (Full Table Scan)
-func SearchKaryawanByNamePG(db *sql.DB, nama string) ([]Karyawan, error) {
+func SearchKaryawanByNamePG(db *sql.DB, nama string, limit int, offset int) ([]Karyawan, error) {
 	query := `SELECT id, nama, jabatan, nik_encrypted, phone_encrypted, is_active, created_at 
 	FROM karyawan 
-	WHERE nama ILIKE $1`
+	WHERE nama ILIKE $1
+	ORDER BY id DESC
+	LIMIT $2 OFFSET $3`
 
 	// Menambahkan % di awal dan akhir query agar sesuai kaidah ILIKE
 	searchParam := fmt.Sprintf("%%%s%%", nama)
 
-	rows, err := db.Query(query, searchParam)
+	rows, err := db.Query(query, searchParam, limit, offset)
 	if err != nil {
 		return nil, err
 	}
