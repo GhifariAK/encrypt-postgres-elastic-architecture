@@ -9,8 +9,8 @@ services:
       POSTGRES_USER: ${DB_USER}
       POSTGRES_PASSWORD: ${DB_PASS}
       POSTGRES_DB: ${DB_NAME}
-    ports:
-      - "${DB_EXTERNAL_PORT}:5432" 
+    # ports:
+    #   - "${DB_EXTERNAL_PORT}:5432" 
     networks:
       - private_network
     volumes:

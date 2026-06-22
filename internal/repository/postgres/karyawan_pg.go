@@ -75,15 +75,16 @@ func GetKaryawanByIDs(db *sql.DB, ids []int) ([]Karyawan, error) {
 }
 
 // GetAllKaryawan menarik seluruh data karyawan  yang ada di database
-func GetAllKaryawan(db *sql.DB) ([]Karyawan, error) {
+func GetAllKaryawan(db *sql.DB, limit int, offset int) ([]Karyawan, error) {
 	// [PRODUCTION TODO]: Di production skala enterprise, WAJIB menggunakan Pagination (LIMIT & OFFSET).
 	// Mengambil semua data sekaligus tanpa batasan dapat membuat memori server jebol jika data berjumlah jutaan.
 	query := `SELECT id, nama, jabatan, nik_encrypted, phone_encrypted, is_active, created_at 
 	FROM karyawan
 	ORDER BY id DESC
+	LIMIT $1 OFFSET $2
 	`
 
-	rows, err := db.Query(query)
+	rows, err := db.Query(query, limit, offset)
 	if err != nil {
 		return nil, err
 	}
@@ -162,4 +163,31 @@ func DeleteKaryawan(db *sql.DB, id int) error {
 	}
 
 	return nil
+}
+
+// SearchKaryawanByNamePG mencari data langsung ke Postgres menggunakan ILIKE (Full Table Scan)
+func SearchKaryawanByNamePG(db *sql.DB, nama string) ([]Karyawan, error) {
+	query := `SELECT id, nama, jabatan, nik_encrypted, phone_encrypted, is_active, created_at 
+	FROM karyawan 
+	WHERE nama ILIKE $1`
+
+	// Menambahkan % di awal dan akhir query agar sesuai kaidah ILIKE
+	searchParam := fmt.Sprintf("%%%s%%", nama)
+
+	rows, err := db.Query(query, searchParam)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var hasil []Karyawan
+	for rows.Next() {
+		var k Karyawan
+		err := rows.Scan(&k.ID, &k.Nama, &k.Jabatan, &k.NIKEncrypted, &k.PhoneEncrypted, &k.IsActive, &k.CreatedAt)
+		if err != nil {
+			return nil, err
+		}
+		hasil = append(hasil, k)
+	}
+	return hasil, nil
 }

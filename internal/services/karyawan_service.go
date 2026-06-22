@@ -7,6 +7,7 @@ import (
 	"data-encrypt-be/internal/repository/elastic"
 	"data-encrypt-be/internal/repository/postgres"
 	"database/sql"
+	"math/rand"
 
 	es "github.com/elastic/go-elasticsearch/v8"
 )
@@ -100,8 +101,10 @@ func (s *KaryawanService) GetKaryawanByNIK(nikQuery string) ([]postgres.Karyawan
 }
 
 // GetAllKaryawan mengambil semua data lalu mendekripsinya satu per satu
-func (s *KaryawanService) GetAllKaryawan() ([]postgres.Karyawan, error) {
-	karyawans, err := postgres.GetAllKaryawan(s.db)
+func (s *KaryawanService) GetAllKaryawan(page int, limit int) ([]postgres.Karyawan, error) {
+	offset := (page - 1) * limit
+
+	karyawans, err := postgres.GetAllKaryawan(s.db, limit, offset)
 	if err != nil {
 		return nil, err
 	}
@@ -280,33 +283,116 @@ func (s *KaryawanService) GetProviderStats() (map[string]int, error) {
 
 // SyncAllPostgresToElastic memindahkan seluruh data dari Postgres ke Elastic secara otomatis
 func (s *KaryawanService) SyncAllPostgresToElastic() (int, error) {
-	// 1. Tarik semua data dari Postgres
-	karyawans, err := postgres.GetAllKaryawan(s.db)
-	if err != nil {
-		return 0, fmt.Errorf("gagal mengambil data dari postgres: %v", err)
-	}
-
 	jumlahData := 0
+	limit := 1000
+	offset := 0
 
-	// 2. Loop semua data dan kirim ke Elastic
-	for _, k := range karyawans {
-		// Dekripsi data sensitif agar Elastic bisa menyimpannya sebagai plaintext katalog
-		decNIK, errNIK := crypto.DecryptAES(k.NIKEncrypted, s.secretKey)
-		decPhone, errPhone := crypto.DecryptAES(k.PhoneEncrypted, s.secretKey)
+	fmt.Println("🔄 Memulai sinkronisasi dari Postgres ke Elastic...")
 
-		if errNIK != nil || errPhone != nil {
-			// Jika ada data yang gagal didekripsi, lewati data ini agar tidak merusak Elastic
-			continue
+	for {
+		// 1. Tarik semua data dari Postgres
+		karyawans, err := postgres.GetAllKaryawan(s.db, limit, offset)
+		if err != nil {
+			return jumlahData, fmt.Errorf("gagal mengambil data dari postgres: %v", err)
 		}
 
-		// 3. Masukkan ke Elastic memakai fungsi IndexKaryawan
-		errStr := elastic.IndexKaryawan(s.esClient, k.ID, k.Nama, decNIK, decPhone)
-		if errStr != nil {
-			fmt.Printf("Gagal sync karyawan ID %d ke Elastic: %v\n", k.ID, errStr)
-			continue
+		// Jika array kosong, berarti semua data sudah habis ditarik dari Postgres
+		if len(karyawans) == 0 {
+			break
 		}
-		jumlahData++
+
+		// 2. Loop semua data dan kirim ke Elastic
+		for _, k := range karyawans {
+			// Dekripsi data sensitif agar Elastic bisa menyimpannya sebagai plaintext katalog
+			decNIK, errNIK := crypto.DecryptAES(k.NIKEncrypted, s.secretKey)
+			decPhone, errPhone := crypto.DecryptAES(k.PhoneEncrypted, s.secretKey)
+
+			if errNIK != nil || errPhone != nil {
+				// Jika ada data yang gagal didekripsi, lewati data ini agar tidak merusak Elastic
+				continue
+			}
+
+			// 3. Masukkan ke Elastic memakai fungsi IndexKaryawan
+			errStr := elastic.IndexKaryawan(s.esClient, k.ID, k.Nama, decNIK, decPhone)
+			if errStr != nil {
+				fmt.Printf("Gagal sync karyawan ID %d ke Elastic: %v\n", k.ID, errStr)
+				continue
+			}
+			jumlahData++
+		}
+		fmt.Printf("⏳ sync %d data...\n", jumlahData)
+
+		// 3. Majukan offset sejauh 1000 langkah untuk batch selanjutnya
+		offset += limit
 	}
 
+	fmt.Printf("✅ Sinkronisasi selesai! Total %d data berhasil dikirim ke Elastic.\n", jumlahData)
 	return jumlahData, nil
+}
+
+// SeedDummyData menyuntikkan puluhan ribu data dummy secara background
+func (s *KaryawanService) SeedDummyData() {
+	jumlahData := 20000
+
+	// Jalankan Goroutine agar Postman tidak loading panjang
+	go func() {
+		fmt.Printf("🚀 MULAI: Menyuntikkan %d data dummy...\n", jumlahData)
+
+		namaDepan := []string{"Andi", "Budi", "Citra", "Dewi", "Eko", "Fajar", "Gita", "Hadi", "Indah", "Joko"}
+		namaBelakang := []string{"Saputra", "Wijaya", "Kusuma", "Lestari", "Nugroho", "Pratama", "Sari", "Setiawan", "Hidayat", "Putri"}
+
+		for i := 1; i <= jumlahData; i++ {
+			// Mengacak indeks dari 0 sampai 9
+			idxDepan := rand.Intn(len(namaDepan))
+			idxBelakang := rand.Intn(len(namaBelakang))
+
+			// Hasilnya akan bervariasi: "Andi Wijaya", "Citra Kusuma", dll ditambah angka agar unik
+			namaAsli := fmt.Sprintf("%s %s %d", namaDepan[idxDepan], namaBelakang[idxBelakang], i)
+
+			nikAsli := fmt.Sprintf("327000%08d", i)
+			phoneAsli := fmt.Sprintf("0812%08d", i)
+
+			// Enkripsi
+			nikEncrypted, _ := crypto.EncryptAES(nikAsli, s.secretKey)
+			phoneEncrypted, _ := crypto.EncryptAES(phoneAsli, s.secretKey)
+
+			// Simpan ke Postgres pakai fungsi InsertKaryawan yang sudah di buat
+			karyawanID, err := postgres.InsertKaryawan(s.db, namaAsli, "Staff", nikEncrypted, phoneEncrypted)
+			if err != nil {
+				fmt.Printf("Gagal insert ke PG baris %d: %v\n", i, err)
+				continue
+			}
+
+			// Sinkron ke Elastic
+			err = elastic.IndexKaryawan(s.esClient, karyawanID, namaAsli, nikAsli, phoneAsli)
+			if err != nil {
+				fmt.Printf("Gagal index ke ES baris %d: %v\n", i, err)
+			}
+
+			// Tampilkan log tiap 5000 data
+			if i%5000 == 0 {
+				fmt.Printf("⏳ PROGRES: %d / %d data berhasil masuk...\n", i, jumlahData)
+			}
+		}
+		fmt.Println("✅ SELESAI: 20.000 data dummy berhasil disuntikkan!")
+	}()
+}
+
+// SearchNamaPG mencari nama murni lewat Postgres untuk pembanding performa
+func (s *KaryawanService) SearchNamaPG(namaQuery string) ([]postgres.Karyawan, error) {
+	karyawans, err := postgres.SearchKaryawanByNamePG(s.db, namaQuery)
+	if err != nil {
+		return nil, err
+	}
+
+	// Dekripsi data balasan agar formatnya sama dengan balasan Elastic
+	for i := range karyawans {
+		if decNIK, err := crypto.DecryptAES(karyawans[i].NIKEncrypted, s.secretKey); err == nil {
+			karyawans[i].NIKDecrypted = decNIK
+		}
+		if decPhone, err := crypto.DecryptAES(karyawans[i].PhoneEncrypted, s.secretKey); err == nil {
+			karyawans[i].PhoneDecrypted = decPhone
+		}
+	}
+	return karyawans, nil
 }

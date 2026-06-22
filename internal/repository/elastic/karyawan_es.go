@@ -182,13 +182,26 @@ func SearchPhone(es *elasticsearch.Client, phoneQuery string) ([]int, error) {
 
 // SearchNama mencari dokumen berdasarkan nama dengan toleransi salah ketik (typo)
 func SearchNama(es *elasticsearch.Client, namaQuery string) ([]int, error) {
-	// Menggunakan "match" dan "fuzziness" agar "Andy" tetap cocok dengan "Andi"
+	// // Menggunakan "match" dan "fuzziness" agar "Andy" tetap cocok dengan "Andi"
+	// queryBody := fmt.Sprintf(`{
+	// 	"query": {
+	// 		"match": {
+	// 			"nama": {
+	// 				"query": "%s",
+	// 				"fuzziness": "AUTO"
+	// 			}
+	// 		}
+	// 	}
+	// }`, namaQuery)
+
+	// Menggunakan wildcard pada "nama.keyword" dipadukan dengan case_insensitive: true.
+	// Jika user mengetik "an", maka "Andi", "Anton", "Hasan" akan langsung ditemukan.
 	queryBody := fmt.Sprintf(`{
 		"query": {
-			"match": {
-				"nama": {
-					"query": "%s",
-					"fuzziness": "AUTO"
+			"wildcard": {
+				"nama.keyword": {
+					"value": "*%s*",
+					"case_insensitive": true
 				}
 			}
 		}

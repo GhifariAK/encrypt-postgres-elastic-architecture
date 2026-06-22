@@ -95,14 +95,37 @@ func (h *KaryawanHandler) GetAllKaryawanHandler(w http.ResponseWriter, r *http.R
 		return
 	}
 
-	karyawans, err := h.service.GetAllKaryawan()
+	// Tangkap parameter dari URL
+	pageStr := r.URL.Query().Get("page")
+	limitStr := r.URL.Query().Get("limit")
+
+	// Konversi string ke int, dengan nilai default jika kosong
+	page, err := strconv.Atoi(pageStr)
+	if err != nil || page <= 0 {
+		page = 1 // Default halaman 1
+	}
+
+	limit, err := strconv.Atoi(limitStr)
+	if err != nil || limit <= 0 {
+		limit = 10 // Default 10 data per halaman
+	}
+
+	karyawans, err := h.service.GetAllKaryawan(page, limit)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 
+	// (Opsional tapi Bagus) Tambahkan meta data pagination di balasan JSON
+	response := map[string]interface{}{
+		"page":                 page,
+		"limit":                limit,
+		"Total_data_This_Page": len(karyawans),
+		"data":                 karyawans,
+	}
+
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(karyawans)
+	json.NewEncoder(w).Encode(response)
 }
 
 // GetKaryawanByIDHandler menangani GET /api/karyawan/detail?id=X
@@ -297,5 +320,49 @@ func (h *KaryawanHandler) SyncKaryawanHandler(w http.ResponseWriter, r *http.Req
 	json.NewEncoder(w).Encode(map[string]interface{}{
 		"message":    "Sinkronisasi data database ke Elasticsearch berhasil!",
 		"total_sync": jumlah,
+	})
+}
+
+// RunSeederHandler menangani POST /api/karyawan/seed
+func (h *KaryawanHandler) RunSeederHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Metode HTTP harus POST", http.StatusMethodNotAllowed)
+		return
+	}
+
+	// Panggil service yang jalan di background
+	h.service.SeedDummyData()
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(map[string]string{
+		"message": "Proses seeding 50.000 data sedang berjalan di background (Lihat log terminal Docker).",
+	})
+}
+
+// SearchPGHandler menangani GET /api/karyawan/search-pg?nama=...
+func (h *KaryawanHandler) SearchPGHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Metode HTTP harus GET", http.StatusMethodNotAllowed)
+		return
+	}
+
+	namaQuery := r.URL.Query().Get("nama")
+	if namaQuery == "" {
+		http.Error(w, "Parameter 'nama' wajib diisi", http.StatusBadRequest)
+		return
+	}
+
+	karyawans, err := h.service.SearchNamaPG(namaQuery)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"source": "PostgreSQL (ILIKE)",
+		"total":  len(karyawans),
+		"data":   karyawans,
 	})
 }
