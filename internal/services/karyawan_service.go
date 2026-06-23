@@ -28,23 +28,23 @@ func NewKaryawanService(db *sql.DB, esClient *es.Client, secretKey string) *Kary
 }
 
 // RegisterKaryawan mengatur alur enkripsi data sebelum dikirim ke DB
-func (s *KaryawanService) RegisterKaryawan(nama, divisi, nikAsli, phoneAsli string) error {
+func (s *KaryawanService) RegisterKaryawan(nama, divisi, nikAsli, phoneAsli string) (int, error) {
 	// 1. Enkripsi NIK menjadi ciphertext AES
 	nikEncrypted, err := crypto.EncryptAES(nikAsli, s.secretKey)
 	if err != nil {
-		return fmt.Errorf("gagal enkripsi NIK: %v", err)
+		return 0, fmt.Errorf("gagal enkripsi NIK: %v", err)
 	}
 
-	// Enkripsi ophone number
+	// Enkripsi phone number
 	phoneEncrypted, err := crypto.EncryptAES(phoneAsli, s.secretKey)
 	if err != nil {
-		return fmt.Errorf("gagal enkripsi nomor telepon: %v", err)
+		return 0, fmt.Errorf("gagal enkripsi nomor telepon: %v", err)
 	}
 
 	// 2. Simpan Ciphertext ke PostgreSQL dan tangkap ID-nya
 	karyawanID, err := postgres.InsertKaryawan(s.db, nama, divisi, nikEncrypted, phoneEncrypted)
 	if err != nil {
-		return err
+		return 0, err
 	}
 
 	// Di versi PoC ini, kita menembak Elastic secara sinkron (langsung).
@@ -57,29 +57,29 @@ func (s *KaryawanService) RegisterKaryawan(nama, divisi, nikAsli, phoneAsli stri
 	// 3. Simpan Plaintext ke Elasticsearch menggunakan ID dari Postgres
 	err = elastic.IndexKaryawan(s.esClient, karyawanID, nama, nikAsli, phoneAsli)
 	if err != nil {
-		return fmt.Errorf("Data berhasil masuk Postgres, tapi gagal ke Elastic: %v", err)
+		return 0, fmt.Errorf("Data berhasil masuk Postgres, tapi gagal ke Elastic: %v", err)
 	}
 
-	return nil
+	return karyawanID, nil
 }
 
 // GetKaryawanByNIK mengambil data berdasarkan query NIK yang dimasukkan
-func (s *KaryawanService) GetKaryawanByNIK(nikQuery string) ([]postgres.Karyawan, error) {
+func (s *KaryawanService) GetKaryawanByNIK(nikQuery string, limit int, offset int) ([]postgres.Karyawan, int, error) {
 	// 1. Cari di Elastic: Dapatkan kumpulan ID karyawan yang NIK-nya mengandung "nikQuery"
-	ids, err := elastic.SearchNIK(s.esClient, nikQuery)
+	ids, totalData, err := elastic.SearchNIK(s.esClient, nikQuery, limit, offset)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 
 	// Jika Elastic tidak menemukan apa-apa, langsung kembalikan array kosong
 	if len(ids) == 0 {
-		return []postgres.Karyawan{}, nil
+		return []postgres.Karyawan{}, 0, nil
 	}
 
 	// 2. Cari di Postgres: Tarik data utuh berdasarkan kumpulan ID tadi
 	karyawans, err := postgres.GetKaryawanByIDs(s.db, ids)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 
 	// 3. Melakukan Dekripsi di memori RAM
@@ -97,16 +97,22 @@ func (s *KaryawanService) GetKaryawanByNIK(nikQuery string) ([]postgres.Karyawan
 		}
 	}
 
-	return karyawans, nil
+	return karyawans, totalData, nil
 }
 
 // GetAllKaryawan mengambil semua data lalu mendekripsinya satu per satu
-func (s *KaryawanService) GetAllKaryawan(page int, limit int) ([]postgres.Karyawan, error) {
-	offset := (page - 1) * limit
+func (s *KaryawanService) GetAllKaryawan(limit int, offset int) ([]postgres.Karyawan, int, error) {
 
+	// 1. Tarik data halaman ini dari Postgres
 	karyawans, err := postgres.GetAllKaryawan(s.db, limit, offset)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
+	}
+
+	// 2. Tarik jumlah total seluruh data dari Postgres
+	totalData, err := postgres.GetKaryawanCount(s.db)
+	if err != nil {
+		return nil, 0, err
 	}
 
 	for i := range karyawans {
@@ -117,7 +123,7 @@ func (s *KaryawanService) GetAllKaryawan(page int, limit int) ([]postgres.Karyaw
 			karyawans[i].PhoneDecrypted = decryptedPhone
 		}
 	}
-	return karyawans, nil
+	return karyawans, totalData, nil
 }
 
 // GetKaryawanByID mengambil satu data spesifik dan mendekripsinya
@@ -174,19 +180,19 @@ func (s *KaryawanService) DeleteKaryawan(id int) error {
 	return elastic.DeleteKaryawan(s.esClient, id)
 }
 
-func (s *KaryawanService) GetKaryawanByPhone(phoneQuery string) ([]postgres.Karyawan, error) {
-	ids, err := elastic.SearchPhone(s.esClient, phoneQuery)
+func (s *KaryawanService) GetKaryawanByPhone(phoneQuery string, limit int, offset int) ([]postgres.Karyawan, int, error) {
+	ids, totalData, err := elastic.SearchPhone(s.esClient, phoneQuery, limit, offset)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 
 	if len(ids) == 0 {
-		return []postgres.Karyawan{}, nil
+		return []postgres.Karyawan{}, 0, nil
 	}
 
 	karyawans, err := postgres.GetKaryawanByIDs(s.db, ids)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 
 	for i := range karyawans {
@@ -203,26 +209,24 @@ func (s *KaryawanService) GetKaryawanByPhone(phoneQuery string) ([]postgres.Kary
 		}
 	}
 
-	return karyawans, nil
+	return karyawans, totalData, nil
 }
 
-// GetKaryawanByName mengambil data berdasarkan query nama (Typo Tolerant)
-func (s *KaryawanService) GetKaryawanByName(namaQuery string, page int, limit int) ([]postgres.Karyawan, error) {
-	// Hitung offset
-	offset := (page - 1) * limit
+// GetKaryawanByName mengambil data berdasarkan query nama
+func (s *KaryawanService) GetKaryawanByName(namaQuery string, limit int, offset int) ([]postgres.Karyawan, int, error) {
 
-	ids, err := elastic.SearchNama(s.esClient, namaQuery, limit, offset)
+	ids, totalData, err := elastic.SearchNama(s.esClient, namaQuery, limit, offset)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 
 	if len(ids) == 0 {
-		return []postgres.Karyawan{}, nil
+		return []postgres.Karyawan{}, 0, nil
 	}
 
 	karyawans, err := postgres.GetKaryawanByIDs(s.db, ids)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 
 	for i := range karyawans {
@@ -239,21 +243,21 @@ func (s *KaryawanService) GetKaryawanByName(namaQuery string, page int, limit in
 		}
 	}
 
-	return karyawans, nil
+	return karyawans, totalData, nil
 }
 
 // GetKaryawanSortedByNIK mengambil data karyawan yang sudah terurut berdasarkan NIK
-func (s *KaryawanService) GetKaryawanSortedByNIK() ([]postgres.Karyawan, error) {
+func (s *KaryawanService) GetKaryawanSortedByNIK(limit int, offset int) ([]postgres.Karyawan, int, error) {
 	// 1. Ambil urutan ID dari Elastic
-	ids, err := elastic.GetAllSortedByNIK(s.esClient)
+	ids, totalData, err := elastic.GetAllSortedByNIK(s.esClient, limit, offset)
 	if err != nil || len(ids) == 0 {
-		return []postgres.Karyawan{}, err
+		return []postgres.Karyawan{}, 0, err
 	}
 
 	// 2. Tarik datanya dari Postgres
 	karyawans, err := postgres.GetKaryawanByIDs(s.db, ids)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 
 	// 3. Pindahkan ke map sementara dan lakukan dekripsi
@@ -276,7 +280,7 @@ func (s *KaryawanService) GetKaryawanSortedByNIK() ([]postgres.Karyawan, error) 
 		}
 	}
 
-	return sortedKaryawans, nil
+	return sortedKaryawans, totalData, nil
 }
 
 // GetProviderStats mengambil analitik jumlah karyawan per provider telepon
@@ -382,13 +386,17 @@ func (s *KaryawanService) SeedDummyData() {
 }
 
 // SearchNamaPG mencari nama murni lewat Postgres untuk pembanding performa
-func (s *KaryawanService) SearchNamaPG(namaQuery string, page int, limit int) ([]postgres.Karyawan, error) {
-	// Hitung offset matematika
-	offset := (page - 1) * limit
+func (s *KaryawanService) SearchNamaPG(namaQuery string, limit int, offset int) ([]postgres.Karyawan, int, error) {
 
 	karyawans, err := postgres.SearchKaryawanByNamePG(s.db, namaQuery, limit, offset)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
+	}
+
+	// Tarik jumlah total seluruh data yang cpcook dari postgres
+	totalData, err := postgres.GetKaryawanCountByName(s.db, namaQuery)
+	if err != nil {
+		return nil, 0, err
 	}
 
 	// Dekripsi data balasan agar formatnya sama dengan balasan Elastic
@@ -400,5 +408,5 @@ func (s *KaryawanService) SearchNamaPG(namaQuery string, page int, limit int) ([
 			karyawans[i].PhoneDecrypted = decPhone
 		}
 	}
-	return karyawans, nil
+	return karyawans, totalData, nil
 }

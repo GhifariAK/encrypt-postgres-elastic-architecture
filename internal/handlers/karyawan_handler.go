@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"data-encrypt-be/internal/services"
+	"data-encrypt-be/internal/utils"
 	"encoding/json"
 	"net/http"
 	"strconv"
@@ -28,70 +29,97 @@ type CreateKaryawanReq struct {
 // CreateKaryawanHandler menangani endpoint POST /api/karyawan/create
 func (h *KaryawanHandler) CreateKaryawanHandler(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
-		http.Error(w, "Metode HTTP harus POST", http.StatusMethodNotAllowed)
+		utils.SendError(w, http.StatusMethodNotAllowed, "Metode HTTP harus POST")
 		return
 	}
 
 	var req CreateKaryawanReq
 	err := json.NewDecoder(r.Body).Decode(&req)
 	if err != nil {
-		http.Error(w, "Format JSON salah: "+err.Error(), http.StatusBadRequest)
+		utils.SendError(w, http.StatusBadRequest, "Format JSON salah: "+err.Error())
 		return
 	}
 
 	// Kirim data ke layer service
-	err = h.service.RegisterKaryawan(req.Nama, req.Jabatan, req.NIK, req.Phone)
+	newID, err := h.service.RegisterKaryawan(req.Nama, req.Jabatan, req.NIK, req.Phone)
 	if err != nil {
-		http.Error(w, "Gagal memproses data: "+err.Error(), http.StatusInternalServerError)
+		utils.SendError(w, http.StatusInternalServerError, "Gagal memproses data: "+err.Error())
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusCreated)
-	json.NewEncoder(w).Encode(map[string]string{
-		"message": "Sukses! Data karyawan berhasil disimpan (Postgres) dan diindeks (Elastic).",
-	})
+	// Menyiapkan payload ringkas untuk dimasukkan ke field "data" JSON
+	createdData := map[string]interface{}{
+		"id":      newID,
+		"nama":    req.Nama,
+		"jabatan": req.Jabatan,
+	}
+
+	// Mengganti map dadakan lama dengan SendSuccess standar industri (Status 201 Created)
+	utils.SendSuccess(
+		w,
+		http.StatusCreated,
+		"Sukses! Data karyawan berhasil disimpan (Postgres) dan diindeks (Elastic).",
+		createdData,
+	)
 }
 
 // GetKaryawanHandler menangani endpoint GET /api/karyawan/search?nik=...
 func (h *KaryawanHandler) GetKaryawanByNIKHandler(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
-		http.Error(w, "Metode HTTP harus GET", http.StatusMethodNotAllowed)
+		utils.SendError(w, http.StatusMethodNotAllowed, "Metode HTTP harus GET")
 		return
 	}
 
 	// Mengambil parameter NIK dari URL Query
 	nikAsli := r.URL.Query().Get("nik")
 	if nikAsli == "" {
-		http.Error(w, "Parameter 'nik' wajib diisi di query URL", http.StatusBadRequest)
+		utils.SendError(w, http.StatusBadRequest, "Parameter 'nik' wajib diisi di query URL")
 		return
 	}
 
+	pageStr := r.URL.Query().Get("page")
+	limitStr := r.URL.Query().Get("limit")
+
+	page, err := strconv.Atoi(pageStr)
+	if err != nil || page <= 0 {
+		page = 1
+	}
+
+	limit, err := strconv.Atoi(limitStr)
+	if err != nil || limit <= 0 {
+		limit = 10
+	}
+
+	offset := (page - 1) * limit
+
 	// Memanggil layer service
-	karyawans, err := h.service.GetKaryawanByNIK(nikAsli)
+	karyawans, totalData, err := h.service.GetKaryawanByNIK(nikAsli, limit, offset)
 	if err != nil {
-		http.Error(w, "Data tidak ditemukan atau error: "+err.Error(), http.StatusNotFound)
+		utils.SendError(w, http.StatusInternalServerError, "Terjadi kesalahan: "+err.Error())
 		return
 	}
 
 	// Info jika array kosong (tidak ditemukan)
 	if len(karyawans) == 0 {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusNotFound)
-		json.NewEncoder(w).Encode(map[string]string{
-			"message": "Data dengan NIK tersebut tidak ditemukan",
-		})
+		utils.SendError(w, http.StatusNotFound, "Data dengan NIK tersebut tidak ditemukan")
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(karyawans)
+	utils.SendSuccessWithPagination(
+		w,
+		http.StatusOK,
+		"Data ditemukan (Sumber: Elasticsearch NIK Wildcard)",
+		karyawans,
+		page,
+		limit,
+		totalData,
+	)
 }
 
 // GetAllKaryawanHandler menangani GET /api/karyawan
 func (h *KaryawanHandler) GetAllKaryawanHandler(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
-		http.Error(w, "Metode HTTP harus GET", http.StatusMethodNotAllowed)
+		utils.SendError(w, http.StatusMethodNotAllowed, "Metode HTTP harus GET")
 		return
 	}
 
@@ -110,149 +138,195 @@ func (h *KaryawanHandler) GetAllKaryawanHandler(w http.ResponseWriter, r *http.R
 		limit = 10 // Default 10 data per halaman
 	}
 
-	karyawans, err := h.service.GetAllKaryawan(page, limit)
+	offset := (page - 1) * limit
+
+	karyawans, totalData, err := h.service.GetAllKaryawan(limit, offset)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		utils.SendError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 
-	// (Opsional tapi Bagus) Tambahkan meta data pagination di balasan JSON
-	response := map[string]interface{}{
-		"page":                 page,
-		"limit":                limit,
-		"Total_data_This_Page": len(karyawans),
-		"data":                 karyawans,
-	}
-
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(response)
+	// Menggunakan SendSuccessWithPagination pusat
+	utils.SendSuccessWithPagination(
+		w,
+		http.StatusOK,
+		"Data berhasil diambil",
+		karyawans,
+		page,
+		limit,
+		totalData,
+	)
 }
 
 // GetKaryawanByIDHandler menangani GET /api/karyawan/detail?id=X
 func (h *KaryawanHandler) GetKaryawanByIDHandler(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
-		http.Error(w, "Metode HTTP harus GET", http.StatusMethodNotAllowed)
+		utils.SendError(w, http.StatusMethodNotAllowed, "Metode HTTP harus GET")
 		return
 	}
 
 	idStr := r.URL.Query().Get("id")
 	id, err := strconv.Atoi(idStr)
 	if err != nil {
-		http.Error(w, "ID harus berupa angka valid", http.StatusBadRequest)
+		utils.SendError(w, http.StatusBadRequest, "ID harus berupa angka valid")
 		return
 	}
 
 	k, err := h.service.GetKaryawanByID(id)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		utils.SendError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 	if k == nil {
-		http.Error(w, "Data karyawan tidak ditemukan", http.StatusNotFound)
+		utils.SendError(w, http.StatusNotFound, "Data karyawan tidak ditemukan")
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(k)
+	utils.SendSuccess(w, http.StatusOK, "Data karyawan ditemukan", k)
 }
 
 // UpdateKaryawanHandler menangani PUT /api/karyawan/update?id=X
 func (h *KaryawanHandler) UpdateKaryawanHandler(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPut {
-		http.Error(w, "Metode HTTP harus PUT", http.StatusMethodNotAllowed)
+		utils.SendError(w, http.StatusMethodNotAllowed, "Metode HTTP harus PUT")
 		return
 	}
 
 	idStr := r.URL.Query().Get("id")
 	id, err := strconv.Atoi(idStr)
 	if err != nil {
-		http.Error(w, "ID harus berupa angka valid", http.StatusBadRequest)
+		utils.SendError(w, http.StatusBadRequest, "ID harus berupa angka valid")
 		return
 	}
 
 	var req CreateKaryawanReq // Struktur data request body-nya sama
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "JSON Body salah", http.StatusBadRequest)
+		utils.SendError(w, http.StatusBadRequest, "JSON Body salah")
 		return
 	}
 
 	if err := h.service.UpdateKaryawan(id, req.Nama, req.Jabatan, req.NIK, req.Phone); err != nil {
 		// Jika pesan error mengandung kata "tidak ditemukan", kembalikan 404
 		if strings.Contains(err.Error(), "tidak ditemukan") {
-			http.Error(w, err.Error(), http.StatusNotFound)
+			utils.SendError(w, http.StatusNotFound, err.Error())
 			return
 		}
 
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		utils.SendError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]string{"message": "Data karyawan berhasil diperbarui secara sinkron!"})
+	updatedData := map[string]interface{}{
+		"id":      id,
+		"nama":    req.Nama,
+		"jabatan": req.Jabatan,
+		"nik":     req.NIK,
+		"phone":   req.Phone,
+	}
+
+	utils.SendSuccess(w, http.StatusOK, "Data karyawan berhasil diperbarui secara sinkron!", updatedData)
 }
 
 // DeleteKaryawanHandler menangani DELETE /api/karyawan/delete?id=X
 func (h *KaryawanHandler) DeleteKaryawanHandler(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodDelete {
-		http.Error(w, "Metode HTTP harus DELETE", http.StatusMethodNotAllowed)
+		utils.SendError(w, http.StatusMethodNotAllowed, "Metode HTTP harus DELETE")
 		return
 	}
 
 	idStr := r.URL.Query().Get("id")
 	id, err := strconv.Atoi(idStr)
 	if err != nil {
-		http.Error(w, "ID harus berupa angka valid", http.StatusBadRequest)
+		utils.SendError(w, http.StatusBadRequest, "ID harus berupa angka valid")
+		return
+	}
+
+	karyawan, err := h.service.GetKaryawanByID(id)
+	if err != nil {
+		utils.SendError(w, http.StatusInternalServerError, "Gagal mengambil data sebelum dihapus: "+err.Error())
+		return
+	}
+	if karyawan == nil {
+		utils.SendError(w, http.StatusNotFound, "Data tidak ditemukan")
 		return
 	}
 
 	if err := h.service.DeleteKaryawan(id); err != nil {
-		// Jika pesan error mengandung kata "tidak ditemukan", kembalikan 404
-		if strings.Contains(err.Error(), "tidak ditemukan") {
-			http.Error(w, err.Error(), http.StatusNotFound)
-			return
-		}
-
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		utils.SendError(w, http.StatusInternalServerError, "Gagal menghapus data: "+err.Error())
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]string{"message": "Data karyawan berhasil dihapus permanen dari Postgres dan Elastic!"})
+	deletedData := map[string]interface{}{
+		"id":      karyawan.ID,
+		"nama":    karyawan.Nama,
+		"jabatan": karyawan.Jabatan,
+		"nik":     karyawan.NIKDecrypted,
+		"phone":   karyawan.PhoneDecrypted,
+	}
+
+	utils.SendSuccess(w, http.StatusOK, "Data karyawan berhasil dihapus permanen dari Postgres dan Elastic!", deletedData)
 }
 
-// GetKaryawanByTeleponHandler menangani endpoint GET /api/karyawan/search/telepon?telp=...
-func (h *KaryawanHandler) GetKaryawanByTeleponHandler(w http.ResponseWriter, r *http.Request) {
+// GetKaryawanByPhoneHandler menangani endpoint GET /api/karyawan/search/phone?phone=...
+func (h *KaryawanHandler) GetKaryawanByPhoneHandler(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
-		http.Error(w, "Metode HTTP harus GET", http.StatusMethodNotAllowed)
+		utils.SendError(w, http.StatusMethodNotAllowed, "Metode HTTP harus GET")
 		return
 	}
 
-	telpQuery := r.URL.Query().Get("telp")
+	telpQuery := r.URL.Query().Get("phone")
 	if telpQuery == "" {
-		http.Error(w, "Parameter 'telp' wajib diisi", http.StatusBadRequest)
+		utils.SendError(w, http.StatusBadRequest, "Parameter 'phone' wajib diisi")
 		return
 	}
 
-	karyawans, err := h.service.GetKaryawanByPhone(telpQuery)
+	pageStr := r.URL.Query().Get("page")
+	limitStr := r.URL.Query().Get("limit")
+
+	page, err := strconv.Atoi(pageStr)
+	if err != nil || page <= 0 {
+		page = 1
+	}
+
+	limit, err := strconv.Atoi(limitStr)
+	if err != nil || limit <= 0 {
+		limit = 10
+	}
+
+	offset := (page - 1) * limit
+
+	karyawans, totalData, err := h.service.GetKaryawanByPhone(telpQuery, limit, offset)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		utils.SendError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(karyawans)
+	if len(karyawans) == 0 {
+		utils.SendError(w, http.StatusNotFound, "Data dengan nomor telepon tersebut tidak ditemukan")
+		return
+	}
+
+	utils.SendSuccessWithPagination(
+		w,
+		http.StatusOK,
+		"Data ditemukan (Sumber: Elasticsearch Phone Wildcard)",
+		karyawans,
+		page,
+		limit,
+		totalData,
+	)
 }
 
-// GetKaryawanByNamaHandler menangani endpoint GET /api/karyawan/search/nama?nama=...
+// GetKaryawanByNamaHandler menangani endpoint GET /api/karyawan/search/name/es/nama?nama=...
 func (h *KaryawanHandler) GetKaryawanByNameHandler(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
-		http.Error(w, "Metode HTTP harus GET", http.StatusMethodNotAllowed)
+		utils.SendError(w, http.StatusMethodNotAllowed, "Metode HTTP harus GET")
 		return
 	}
 
 	namaQuery := r.URL.Query().Get("nama")
 	if namaQuery == "" {
-		http.Error(w, "Parameter 'nama' wajib diisi", http.StatusBadRequest)
+		utils.SendError(w, http.StatusBadRequest, "Parameter 'nama' wajib diisi")
 		return
 	}
 
@@ -270,31 +344,61 @@ func (h *KaryawanHandler) GetKaryawanByNameHandler(w http.ResponseWriter, r *htt
 		limit = 10
 	}
 
-	karyawans, err := h.service.GetKaryawanByName(namaQuery, page, limit)
+	offset := (page - 1) * limit
+
+	karyawans, totalData, err := h.service.GetKaryawanByName(namaQuery, limit, offset)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		utils.SendError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(karyawans)
+	utils.SendSuccessWithPagination(
+		w,
+		http.StatusOK,
+		"Pencarian berhasil (Sumber: Elasticsearch)",
+		karyawans,
+		page,
+		limit,
+		totalData,
+	)
 }
 
 // GetKaryawanSortedByNIKHandler menangani endpoint GET /api/karyawan/sorted/nik
 func (h *KaryawanHandler) GetKaryawanSortedByNIKHandler(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
-		http.Error(w, "Metode HTTP harus GET", http.StatusMethodNotAllowed)
+		utils.SendError(w, http.StatusMethodNotAllowed, "Metode HTTP harus GET")
 		return
 	}
 
-	karyawans, err := h.service.GetKaryawanSortedByNIK()
+	pageStr := r.URL.Query().Get("page")
+	limitStr := r.URL.Query().Get("limit")
+
+	page, err := strconv.Atoi(pageStr)
+	if err != nil || page <= 0 {
+		page = 1
+	}
+
+	limit, err := strconv.Atoi(limitStr)
+	if err != nil || limit <= 0 {
+		limit = 10
+	}
+	offset := (page - 1) * limit
+
+	karyawans, totalData, err := h.service.GetKaryawanSortedByNIK(limit, offset)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		utils.SendError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(karyawans)
+	utils.SendSuccessWithPagination(
+		w,
+		http.StatusOK,
+		"Data berhasil diurutkan berdasarkan NIK",
+		karyawans,
+		page,
+		limit,
+		totalData,
+	)
 }
 
 // GetProviderStatsHandler endpoint untuk GET /api/karyawan/stats/provider
@@ -357,13 +461,13 @@ func (h *KaryawanHandler) RunSeederHandler(w http.ResponseWriter, r *http.Reques
 // SearchPGHandler menangani GET /api/karyawan/search-pg?nama=...
 func (h *KaryawanHandler) SearchPGHandler(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
-		http.Error(w, "Metode HTTP harus GET", http.StatusMethodNotAllowed)
+		utils.SendError(w, http.StatusMethodNotAllowed, "Metode HTTP harus GET")
 		return
 	}
 
 	namaQuery := r.URL.Query().Get("nama")
 	if namaQuery == "" {
-		http.Error(w, "Parameter 'nama' wajib diisi", http.StatusBadRequest)
+		utils.SendError(w, http.StatusBadRequest, "Parameter 'nama' wajib diisi")
 		return
 	}
 
@@ -381,16 +485,22 @@ func (h *KaryawanHandler) SearchPGHandler(w http.ResponseWriter, r *http.Request
 		limit = 10 // Default 10 data
 	}
 
-	karyawans, err := h.service.SearchNamaPG(namaQuery, page, limit)
+	offset := (page - 1) * limit
+
+	karyawans, totalData, err := h.service.SearchNamaPG(namaQuery, limit, offset)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		utils.SendError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]interface{}{
-		"source": "PostgreSQL (ILIKE)",
-		"total":  len(karyawans),
-		"data":   karyawans,
-	})
+	// Gunakan SendSuccessWithPagination
+	utils.SendSuccessWithPagination(
+		w,
+		http.StatusOK,
+		"Pencarian berhasil (Sumber: PostgreSQL)",
+		karyawans,
+		page,
+		limit,
+		totalData,
+	)
 }

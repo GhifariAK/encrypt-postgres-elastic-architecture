@@ -76,8 +76,6 @@ func GetKaryawanByIDs(db *sql.DB, ids []int) ([]Karyawan, error) {
 
 // GetAllKaryawan menarik seluruh data karyawan  yang ada di database
 func GetAllKaryawan(db *sql.DB, limit int, offset int) ([]Karyawan, error) {
-	// [PRODUCTION TODO]: Di production skala enterprise, WAJIB menggunakan Pagination (LIMIT & OFFSET).
-	// Mengambil semua data sekaligus tanpa batasan dapat membuat memori server jebol jika data berjumlah jutaan.
 	query := `SELECT id, nama, jabatan, nik_encrypted, phone_encrypted, is_active, created_at 
 	FROM karyawan
 	ORDER BY id DESC
@@ -192,4 +190,28 @@ func SearchKaryawanByNamePG(db *sql.DB, nama string, limit int, offset int) ([]K
 		hasil = append(hasil, k)
 	}
 	return hasil, nil
+}
+
+// GetKaryawanCount menghitung total seluruh baris data di tabel karyawan
+func GetKaryawanCount(db *sql.DB) (int, error) {
+	query := `SELECT COUNT(id) FROM karyawan`
+	var count int
+	err := db.QueryRow(query).Scan(&count)
+	if err != nil {
+		return 0, fmt.Errorf("gagal menghitung total data karyawan: %v", err)
+	}
+	return count, nil
+}
+
+// GetKaryawanCountByName menghitung total baris data yang namanya mengandung query pencarian
+func GetKaryawanCountByName(db *sql.DB, nama string) (int, error) {
+	query := `SELECT COUNT(id) FROM karyawan WHERE nama ILIKE $1`
+	searchParam := fmt.Sprintf("%%%s%%", nama)
+
+	var count int
+	err := db.QueryRow(query, searchParam).Scan(&count)
+	if err != nil {
+		return 0, fmt.Errorf("gagal menghitung total data pencarian nama: %v", err)
+	}
+	return count, nil
 }

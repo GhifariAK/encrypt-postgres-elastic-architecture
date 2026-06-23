@@ -92,9 +92,11 @@ func IndexKaryawan(es *elasticsearch.Client, id int, nama, nikAsli, phoneAsli st
 	return nil
 }
 
-func SearchNIK(es *elasticsearch.Client, nikQuery string) ([]int, error) {
-	// Query pencarian dengan match
+func SearchNIK(es *elasticsearch.Client, nikQuery string, limit int, offset int) ([]int, int, error) {
+	// Query pencarian dengan wildcard
 	queryBody := fmt.Sprintf(`{
+		"from": %d,
+        "size": %d,
 		"query": {
 			"wildcard": {
 				"nik": {
@@ -102,7 +104,7 @@ func SearchNIK(es *elasticsearch.Client, nikQuery string) ([]int, error) {
 				}
 			}
 		}
-	}`, nikQuery)
+	}`, offset, limit, nikQuery)
 
 	res, err := es.Search(
 		es.Search.WithContext(context.Background()),
@@ -111,7 +113,7 @@ func SearchNIK(es *elasticsearch.Client, nikQuery string) ([]int, error) {
 	)
 
 	if err != nil || res.IsError() {
-		return nil, fmt.Errorf("gagal mencari di elastic")
+		return nil, 0, fmt.Errorf("gagal mencari di elastic")
 	}
 	defer res.Body.Close()
 
@@ -119,9 +121,17 @@ func SearchNIK(es *elasticsearch.Client, nikQuery string) ([]int, error) {
 	json.NewDecoder(res.Body).Decode(&result)
 
 	var ids []int
+	totalData := 0
 
 	// Menghindari panic jika hasil pencarian kosong (nil)
 	if hitsData, ok := result["hits"].(map[string]interface{}); ok {
+		// Ambil total data dari elastic
+		if totalMap, ok := hitsData["total"].(map[string]interface{}); ok {
+			if totalVal, ok := totalMap["value"].(float64); ok {
+				totalData = int(totalVal)
+			}
+		}
+
 		if hitsList, ok := hitsData["hits"].([]interface{}); ok {
 			for _, hit := range hitsList {
 				docID := hit.(map[string]interface{})["_id"].(string)
@@ -132,12 +142,14 @@ func SearchNIK(es *elasticsearch.Client, nikQuery string) ([]int, error) {
 		}
 	}
 
-	return ids, nil
+	return ids, totalData, nil
 }
 
 // SearchPhone mencari dokumen berdasarkan potongan nomor telepon
-func SearchPhone(es *elasticsearch.Client, phoneQuery string) ([]int, error) {
+func SearchPhone(es *elasticsearch.Client, phoneQuery string, limit int, offset int) ([]int, int, error) {
 	queryBody := fmt.Sprintf(`{
+		"from": %d,
+		"size": %d,
 		"query": {
 			"wildcard": {
 				"phone": {
@@ -145,7 +157,7 @@ func SearchPhone(es *elasticsearch.Client, phoneQuery string) ([]int, error) {
 				}
 			}
 		}
-	}`, phoneQuery)
+	}`, offset, limit, phoneQuery)
 
 	// untuk default "wildcard" sama seperti query Like (case sensitive)
 	// Jika ingin seperti query "ILIKE" (case insensitive) maka harus menggunakan
@@ -158,7 +170,7 @@ func SearchPhone(es *elasticsearch.Client, phoneQuery string) ([]int, error) {
 	)
 
 	if err != nil || res.IsError() {
-		return nil, fmt.Errorf("gagal mencari di elastic")
+		return nil, 0, fmt.Errorf("gagal mencari di elastic")
 	}
 	defer res.Body.Close()
 
@@ -166,7 +178,16 @@ func SearchPhone(es *elasticsearch.Client, phoneQuery string) ([]int, error) {
 	json.NewDecoder(res.Body).Decode(&result)
 
 	var ids []int
+	totalData := 0
+
 	if hitsData, ok := result["hits"].(map[string]interface{}); ok {
+		// Ambil total data dari elastic
+		if totalMap, ok := hitsData["total"].(map[string]interface{}); ok {
+			if totalVal, ok := totalMap["value"].(float64); ok {
+				totalData = int(totalVal)
+			}
+		}
+
 		if hitsList, ok := hitsData["hits"].([]interface{}); ok {
 			for _, hit := range hitsList {
 				docID := hit.(map[string]interface{})["_id"].(string)
@@ -177,11 +198,11 @@ func SearchPhone(es *elasticsearch.Client, phoneQuery string) ([]int, error) {
 		}
 	}
 
-	return ids, nil
+	return ids, totalData, nil
 }
 
 // SearchNama mencari dokumen berdasarkan nama dengan toleransi salah ketik (typo)
-func SearchNama(es *elasticsearch.Client, namaQuery string, limit int, offset int) ([]int, error) {
+func SearchNama(es *elasticsearch.Client, namaQuery string, limit int, offset int) ([]int, int, error) {
 	// // Menggunakan "match" dan "fuzziness" agar "Andy" tetap cocok dengan "Andi"
 	// queryBody := fmt.Sprintf(`{
 	// 	"query": {
@@ -216,7 +237,7 @@ func SearchNama(es *elasticsearch.Client, namaQuery string, limit int, offset in
 	)
 
 	if err != nil || res.IsError() {
-		return nil, fmt.Errorf("gagal mencari nama di elastic")
+		return nil, 0, fmt.Errorf("gagal mencari nama di elastic")
 	}
 	defer res.Body.Close()
 
@@ -224,9 +245,18 @@ func SearchNama(es *elasticsearch.Client, namaQuery string, limit int, offset in
 	json.NewDecoder(res.Body).Decode(&result)
 
 	var ids []int
+	totalData := 0
 
 	// Menghindari panic jika hasil pencarian kosong
 	if hitsData, ok := result["hits"].(map[string]interface{}); ok {
+		// Ambil total data dari hits.total.value
+		if totalMap, ok := hitsData["total"].(map[string]interface{}); ok {
+			if totalVal, ok := totalMap["value"].(float64); ok {
+				totalData = int(totalVal)
+			}
+		}
+
+		// Ambil ID dokumen dari hits.hits
 		if hitsList, ok := hitsData["hits"].([]interface{}); ok {
 			for _, hit := range hitsList {
 				docID := hit.(map[string]interface{})["_id"].(string)
@@ -237,7 +267,7 @@ func SearchNama(es *elasticsearch.Client, namaQuery string, limit int, offset in
 		}
 	}
 
-	return ids, nil
+	return ids, totalData, nil
 }
 
 // DeleteKaryawan menghapus data katalog pencarian di Elasticsearch berdasarkan ID
@@ -263,12 +293,14 @@ func DeleteKaryawan(es *elasticsearch.Client, id int) error {
 }
 
 // GetAllSortedByNIK mengambil semua ID dari Elastic yang sudah diurutkan berdasarkan NIK ASC
-// GetAllSortedByNIK mengambil semua ID dari Elastic yang sudah diurutkan berdasarkan NIK ASC
-func GetAllSortedByNIK(es *elasticsearch.Client) ([]int, error) {
-	queryBody := `{
+func GetAllSortedByNIK(es *elasticsearch.Client, limit int, offset int) ([]int, int, error) {
+	queryBody := fmt.Sprintf(`{
+		"from": %d,
+        "size": %d,
+		"track_total_hits": true,
 		"query": { "match_all": {} },
 		"sort": [ { "nik.keyword": { "order": "asc" } } ]
-	}`
+	}`, offset, limit)
 
 	res, err := es.Search(
 		es.Search.WithContext(context.Background()),
@@ -276,7 +308,7 @@ func GetAllSortedByNIK(es *elasticsearch.Client) ([]int, error) {
 		es.Search.WithBody(bytes.NewReader([]byte(queryBody))),
 	)
 	if err != nil || res.IsError() {
-		return nil, fmt.Errorf("gagal sort NIK di elastic: %s", res.String())
+		return nil, 0, fmt.Errorf("gagal sort NIK di elastic: %s", res.String())
 	}
 	defer res.Body.Close()
 
@@ -284,7 +316,16 @@ func GetAllSortedByNIK(es *elasticsearch.Client) ([]int, error) {
 	json.NewDecoder(res.Body).Decode(&result)
 
 	var ids []int
+	totalData := 0
+
 	if hitsData, ok := result["hits"].(map[string]interface{}); ok {
+		// Ambil total data dari elastic
+		if totalMap, ok := hitsData["total"].(map[string]interface{}); ok {
+			if totalVal, ok := totalMap["value"].(float64); ok {
+				totalData = int(totalVal)
+			}
+		}
+
 		if hitsList, ok := hitsData["hits"].([]interface{}); ok {
 			for _, hit := range hitsList {
 				docID := hit.(map[string]interface{})["_id"].(string)
@@ -294,7 +335,7 @@ func GetAllSortedByNIK(es *elasticsearch.Client) ([]int, error) {
 			}
 		}
 	}
-	return ids, nil
+	return ids, totalData, nil
 }
 
 // GetPhoneProviderStats melakukan GROUP BY (Agregasi) berdasarkan 4 angka awalan telepon

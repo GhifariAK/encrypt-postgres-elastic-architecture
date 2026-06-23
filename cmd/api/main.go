@@ -9,7 +9,7 @@ import (
 
 	"data-encrypt-be/internal/config"
 	"data-encrypt-be/internal/handlers"
-	"data-encrypt-be/internal/repository/elastic" // Untuk memanggil setup N-Gram
+	"data-encrypt-be/internal/repository/elastic"
 	"data-encrypt-be/internal/services"
 
 	"github.com/elastic/go-elasticsearch/v8"
@@ -71,7 +71,7 @@ func main() {
 	// Menjalankan set up index
 	err = elastic.SetupIndex(esClient)
 	if err != nil {
-		log.Fatalf("Gagal setup index N-Gram di Elasticsearch: %v", err)
+		log.Fatalf("Gagal setup index di Elasticsearch: %v", err)
 	}
 
 	// 4. Dependency Injection
@@ -86,16 +86,17 @@ func main() {
 	http.HandleFunc("/api/karyawan/update", karyawanHandler.UpdateKaryawanHandler)             // UPDATE
 	http.HandleFunc("/api/karyawan/delete", karyawanHandler.DeleteKaryawanHandler)             // DELETE
 	http.HandleFunc("/api/karyawan/search/nik", karyawanHandler.GetKaryawanByNIKHandler)       // SEARCH VIA ES
-	http.HandleFunc("/api/karyawan/search/name/es", karyawanHandler.GetKaryawanByNameHandler)  // SEARCH BY NAMA
+	http.HandleFunc("/api/karyawan/search/name/es", karyawanHandler.GetKaryawanByNameHandler)  // SEARCH BY NAMA via ELASTIC
 	http.HandleFunc("/api/karyawan/sorted/nik", karyawanHandler.GetKaryawanSortedByNIKHandler) // GET SORTED BY NIK
 	http.HandleFunc("/api/karyawan/stats/provider", karyawanHandler.GetProviderStatsHandler)   // STATS PROVIDER
 	http.HandleFunc("/api/karyawan/sync", karyawanHandler.SyncKaryawanHandler)                 // SYNC POSTGRES KE ELASTIC (BACKGROUND)
 	http.HandleFunc("/api/karyawan/seed", karyawanHandler.RunSeederHandler)                    // SEEDER DUMMY DATA
 	http.HandleFunc("/api/karyawan/search/name/pg", karyawanHandler.SearchPGHandler)           // SEARCH BY NAMA VIA POSTGRES
+	http.HandleFunc("/api/karyawan/search/phone", karyawanHandler.GetKaryawanByPhoneHandler)   // SEARCH BY PHONE NUMBER
 
 	// Menjalankan Server HTTP
 	port := ":8080"
-	log.Printf("Server 'Dat-Encrypt-BE' berjalan di http://localhost%s\n", port)
+	log.Printf("Server 'Data-Encrypt-BE' berjalan di http://localhost%s\n", port)
 
 	err = http.ListenAndServe(port, nil)
 	if err != nil {
