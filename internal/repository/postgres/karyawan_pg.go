@@ -3,6 +3,7 @@ package postgres
 import (
 	"database/sql"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/lib/pq" // untuk fitur array query
@@ -10,15 +11,38 @@ import (
 
 // Karyawan adalah struktur data yang dibaca oleh aplikasi Go
 type Karyawan struct {
-	ID             int
-	Nama           string
-	Jabatan        string
-	NIKEncrypted   string
-	NIKDecrypted   string // Field ini tidak ada di DB, hanya untuk nampilin hasil di Go
-	PhoneEncrypted string
-	PhoneDecrypted string
-	IsActive       bool
-	CreatedAt      time.Time
+	ID             int       `json:"id"`
+	Nama           string    `json:"nama"`
+	Jabatan        string    `json:"jabatan"`
+	NIKEncrypted   string    `json:"nik_encrypted"`
+	NIKDecrypted   string    `json:"-"`
+	PhoneEncrypted string    `json:"phone_encrypted"`
+	PhoneDecrypted string    `json:"-"`
+	IsActive       bool      `json:"is_active"`
+	CreatedAt      time.Time `json:"created_at"`
+}
+
+// Helper Untuk Mencegah SQL Injection pada ORDER BY
+func getSafeOrderBy(sortBy string, sortOrder string) string {
+	// Whitelist kolom yang diizinkan untuk di-sort
+	allowedFields := map[string]string{
+		"id":         "id",
+		"nama":       "nama",
+		"jabatan":    "jabatan",
+		"created_at": "created_at",
+	}
+
+	field, ok := allowedFields[sortBy]
+	if !ok {
+		field = "id" // Default sorting by ID
+	}
+
+	order := "DESC" // Default descending
+	if strings.ToUpper(sortOrder) == "ASC" {
+		order = "ASC"
+	}
+
+	return fmt.Sprintf("ORDER BY %s %s", field, order)
 }
 
 // InsertKaryawan bertugas memasukkan data yang SUDAH diacak ke PostgreSQL
@@ -75,12 +99,15 @@ func GetKaryawanByIDs(db *sql.DB, ids []int) ([]Karyawan, error) {
 }
 
 // GetAllKaryawan menarik seluruh data karyawan  yang ada di database
-func GetAllKaryawan(db *sql.DB, limit int, offset int) ([]Karyawan, error) {
-	query := `SELECT id, nama, jabatan, nik_encrypted, phone_encrypted, is_active, created_at 
+func GetAllKaryawan(db *sql.DB, limit int, offset int, sortBy string, sortOrder string) ([]Karyawan, error) {
+
+	orderClause := getSafeOrderBy(sortBy, sortOrder)
+
+	query := fmt.Sprintf(`SELECT id, nama, jabatan, nik_encrypted, phone_encrypted, is_active, created_at 
 	FROM karyawan
-	ORDER BY id DESC
+	%s
 	LIMIT $1 OFFSET $2
-	`
+	`, orderClause)
 
 	rows, err := db.Query(query, limit, offset)
 	if err != nil {
@@ -164,12 +191,14 @@ func DeleteKaryawan(db *sql.DB, id int) error {
 }
 
 // SearchKaryawanByNamePG mencari data langsung ke Postgres menggunakan ILIKE (Full Table Scan)
-func SearchKaryawanByNamePG(db *sql.DB, nama string, limit int, offset int) ([]Karyawan, error) {
-	query := `SELECT id, nama, jabatan, nik_encrypted, phone_encrypted, is_active, created_at 
+func SearchKaryawanByNamePG(db *sql.DB, nama string, limit int, offset int, sortBy string, sortOrder string) ([]Karyawan, error) {
+	orderClause := getSafeOrderBy(sortBy, sortOrder)
+
+	query := fmt.Sprintf(`SELECT id, nama, jabatan, nik_encrypted, phone_encrypted, is_active, created_at 
 	FROM karyawan 
 	WHERE nama ILIKE $1
-	ORDER BY id DESC
-	LIMIT $2 OFFSET $3`
+	%s
+	LIMIT $2 OFFSET $3`, orderClause)
 
 	// Menambahkan % di awal dan akhir query agar sesuai kaidah ILIKE
 	searchParam := fmt.Sprintf("%%%s%%", nama)
@@ -214,4 +243,13 @@ func GetKaryawanCountByName(db *sql.DB, nama string) (int, error) {
 		return 0, fmt.Errorf("gagal menghitung total data pencarian nama: %v", err)
 	}
 	return count, nil
+}
+
+// InsertKaryawanPlaintext memasukkan data tanpa enkripsi ke tabel khusus benchmark
+func InsertKaryawanPlaintext(db *sql.DB, id int, nama, jabatan, nik, phone string) error {
+	query := `INSERT INTO karyawan_plaintext (id, nama, jabatan, nik, phone) 
+	          VALUES ($1, $2, $3, $4, $5) 
+	          ON CONFLICT (id) DO NOTHING`
+	_, err := db.Exec(query, id, nama, jabatan, nik, phone)
+	return err
 }

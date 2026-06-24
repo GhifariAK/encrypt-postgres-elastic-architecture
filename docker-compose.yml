@@ -9,8 +9,8 @@ services:
       POSTGRES_USER: ${DB_USER}
       POSTGRES_PASSWORD: ${DB_PASS}
       POSTGRES_DB: ${DB_NAME}
-    # ports:
-    #   - "${DB_EXTERNAL_PORT}:5432" 
+    ports:
+      - "${DB_EXTERNAL_PORT}:5432" 
     networks:
       - private_network
     volumes:
@@ -26,8 +26,8 @@ services:
       
       # Di production sesuaikan dengan kapasitas RAM (Best practice set maksimal 50% dari total ram server)
       - "ES_JAVA_OPTS=-Xms512m -Xmx512m" # Membatasi memori Java (JVM Heap) sebesar 512MB agar RAM laptop tidak habis (OOM).
-    # ports:
-    #   - "9200:9200"
+    ports:
+      - "9200:9200"
     networks:
       - private_network
     volumes:

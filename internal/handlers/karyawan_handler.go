@@ -54,7 +54,6 @@ func (h *KaryawanHandler) CreateKaryawanHandler(w http.ResponseWriter, r *http.R
 		"jabatan": req.Jabatan,
 	}
 
-	// Mengganti map dadakan lama dengan SendSuccess standar industri (Status 201 Created)
 	utils.SendSuccess(
 		w,
 		http.StatusCreated,
@@ -90,10 +89,12 @@ func (h *KaryawanHandler) GetKaryawanByNIKHandler(w http.ResponseWriter, r *http
 		limit = 10
 	}
 
+	sortOrder := r.URL.Query().Get("sort_order")
+
 	offset := (page - 1) * limit
 
 	// Memanggil layer service
-	karyawans, totalData, err := h.service.GetKaryawanByNIK(nikAsli, limit, offset)
+	karyawans, totalData, err := h.service.GetKaryawanByNIK(nikAsli, limit, offset, sortOrder)
 	if err != nil {
 		utils.SendError(w, http.StatusInternalServerError, "Terjadi kesalahan: "+err.Error())
 		return
@@ -138,9 +139,12 @@ func (h *KaryawanHandler) GetAllKaryawanHandler(w http.ResponseWriter, r *http.R
 		limit = 10 // Default 10 data per halaman
 	}
 
+	sortBy := r.URL.Query().Get("sort_by")
+	sortOrder := r.URL.Query().Get("sort_order")
+
 	offset := (page - 1) * limit
 
-	karyawans, totalData, err := h.service.GetAllKaryawan(limit, offset)
+	karyawans, totalData, err := h.service.GetAllKaryawan(limit, offset, sortBy, sortOrder)
 	if err != nil {
 		utils.SendError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -220,8 +224,6 @@ func (h *KaryawanHandler) UpdateKaryawanHandler(w http.ResponseWriter, r *http.R
 		"id":      id,
 		"nama":    req.Nama,
 		"jabatan": req.Jabatan,
-		"nik":     req.NIK,
-		"phone":   req.Phone,
 	}
 
 	utils.SendSuccess(w, http.StatusOK, "Data karyawan berhasil diperbarui secara sinkron!", updatedData)
@@ -257,11 +259,11 @@ func (h *KaryawanHandler) DeleteKaryawanHandler(w http.ResponseWriter, r *http.R
 	}
 
 	deletedData := map[string]interface{}{
-		"id":      karyawan.ID,
-		"nama":    karyawan.Nama,
-		"jabatan": karyawan.Jabatan,
-		"nik":     karyawan.NIKDecrypted,
-		"phone":   karyawan.PhoneDecrypted,
+		"id":              karyawan.ID,
+		"nama":            karyawan.Nama,
+		"jabatan":         karyawan.Jabatan,
+		"nik_encrypted":   karyawan.NIKEncrypted,
+		"phone_encrypted": karyawan.PhoneEncrypted,
 	}
 
 	utils.SendSuccess(w, http.StatusOK, "Data karyawan berhasil dihapus permanen dari Postgres dan Elastic!", deletedData)
@@ -293,9 +295,11 @@ func (h *KaryawanHandler) GetKaryawanByPhoneHandler(w http.ResponseWriter, r *ht
 		limit = 10
 	}
 
+	sortOrder := r.URL.Query().Get("sort_order")
+
 	offset := (page - 1) * limit
 
-	karyawans, totalData, err := h.service.GetKaryawanByPhone(telpQuery, limit, offset)
+	karyawans, totalData, err := h.service.GetKaryawanByPhone(telpQuery, limit, offset, sortOrder)
 	if err != nil {
 		utils.SendError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -344,9 +348,11 @@ func (h *KaryawanHandler) GetKaryawanByNameHandler(w http.ResponseWriter, r *htt
 		limit = 10
 	}
 
+	sortOrder := r.URL.Query().Get("sort_order")
+
 	offset := (page - 1) * limit
 
-	karyawans, totalData, err := h.service.GetKaryawanByName(namaQuery, limit, offset)
+	karyawans, totalData, err := h.service.GetKaryawanByName(namaQuery, limit, offset, sortOrder)
 	if err != nil {
 		utils.SendError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -356,44 +362,6 @@ func (h *KaryawanHandler) GetKaryawanByNameHandler(w http.ResponseWriter, r *htt
 		w,
 		http.StatusOK,
 		"Pencarian berhasil (Sumber: Elasticsearch)",
-		karyawans,
-		page,
-		limit,
-		totalData,
-	)
-}
-
-// GetKaryawanSortedByNIKHandler menangani endpoint GET /api/karyawan/sorted/nik
-func (h *KaryawanHandler) GetKaryawanSortedByNIKHandler(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
-		utils.SendError(w, http.StatusMethodNotAllowed, "Metode HTTP harus GET")
-		return
-	}
-
-	pageStr := r.URL.Query().Get("page")
-	limitStr := r.URL.Query().Get("limit")
-
-	page, err := strconv.Atoi(pageStr)
-	if err != nil || page <= 0 {
-		page = 1
-	}
-
-	limit, err := strconv.Atoi(limitStr)
-	if err != nil || limit <= 0 {
-		limit = 10
-	}
-	offset := (page - 1) * limit
-
-	karyawans, totalData, err := h.service.GetKaryawanSortedByNIK(limit, offset)
-	if err != nil {
-		utils.SendError(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-
-	utils.SendSuccessWithPagination(
-		w,
-		http.StatusOK,
-		"Data berhasil diurutkan berdasarkan NIK",
 		karyawans,
 		page,
 		limit,
@@ -459,7 +427,7 @@ func (h *KaryawanHandler) RunSeederHandler(w http.ResponseWriter, r *http.Reques
 }
 
 // SearchPGHandler menangani GET /api/karyawan/search-pg?nama=...
-func (h *KaryawanHandler) SearchPGHandler(w http.ResponseWriter, r *http.Request) {
+func (h *KaryawanHandler) SearchNamePGHandler(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		utils.SendError(w, http.StatusMethodNotAllowed, "Metode HTTP harus GET")
 		return
@@ -485,9 +453,12 @@ func (h *KaryawanHandler) SearchPGHandler(w http.ResponseWriter, r *http.Request
 		limit = 10 // Default 10 data
 	}
 
+	sortBy := r.URL.Query().Get("sort_by")
+	sortOrder := r.URL.Query().Get("sort_order")
+
 	offset := (page - 1) * limit
 
-	karyawans, totalData, err := h.service.SearchNamaPG(namaQuery, limit, offset)
+	karyawans, totalData, err := h.service.SearchNamaPG(namaQuery, limit, offset, sortBy, sortOrder)
 	if err != nil {
 		utils.SendError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -503,4 +474,60 @@ func (h *KaryawanHandler) SearchPGHandler(w http.ResponseWriter, r *http.Request
 		limit,
 		totalData,
 	)
+}
+
+// API DECRYPT
+// Struct untuk menangkap body JSON dari user
+type DecryptRequest struct {
+	EncryptedText string `json:"encrypted_text"`
+}
+
+// Struct untuk membalas hasil dekripsi
+type DecryptResponse struct {
+	PlainText string `json:"plaintext"`
+}
+
+// DecryptDataHandler menangani endpoint POST /api/karyawan/decrypt
+func (h *KaryawanHandler) DecryptDataHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		utils.SendError(w, http.StatusMethodNotAllowed, "Metode HTTP harus POST")
+		return
+	}
+
+	var req DecryptRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		utils.SendError(w, http.StatusBadRequest, "Format JSON salah")
+		return
+	}
+
+	if req.EncryptedText == "" {
+		utils.SendError(w, http.StatusBadRequest, "encrypted_text tidak boleh kosong")
+		return
+	}
+
+	// Panggil fungsi jembatan dari service untuk melakukan dekripsi
+	plainText, err := h.service.DecryptText(req.EncryptedText)
+	if err != nil {
+		utils.SendError(w, http.StatusInternalServerError, "Gagal mendekripsi: Pastikan format ciphertext benar")
+		return
+	}
+
+	res := DecryptResponse{
+		PlainText: plainText,
+	}
+
+	utils.SendSuccess(w, http.StatusOK, "Data berhasil didekripsi", res)
+}
+
+// ClonePlaintextHandler menangani endpoint POST /api/karyawan/clone-plain
+func (h *KaryawanHandler) ClonePlaintextHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		utils.SendError(w, http.StatusMethodNotAllowed, "Metode HTTP harus POST")
+		return
+	}
+
+	// Jalankan di background (Goroutine) agar Postman tidak macet menunggu 20.000 data
+	go h.service.CloneToPlaintext()
+
+	utils.SendSuccess(w, http.StatusOK, "Proses cloning ke tabel plaintext sedang berjalan di background. Silakan cek log terminal!", nil)
 }

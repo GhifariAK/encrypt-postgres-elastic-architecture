@@ -11,6 +11,20 @@ import (
 	"github.com/elastic/go-elasticsearch/v8/esapi"
 )
 
+// Helper untuk Membuat string format JSON sort untuk Elastic
+func getElasticSortStr(field string, sortOrder string) string {
+	if sortOrder == "" {
+		return ""
+	}
+
+	order := "asc"
+	if strings.ToLower(sortOrder) == "desc" {
+		order = "desc"
+	}
+
+	return fmt.Sprintf(`, "sort": [ { "%s.keyword": { "order": "%s" } } ]`, field, order)
+}
+
 // SetupIndex memastikan tabel Elasticsearch dibuat menggunakan tipe data "wildcard"
 func SetupIndex(es *elasticsearch.Client) error {
 	indexName := "karyawan_index"
@@ -92,11 +106,15 @@ func IndexKaryawan(es *elasticsearch.Client, id int, nama, nikAsli, phoneAsli st
 	return nil
 }
 
-func SearchNIK(es *elasticsearch.Client, nikQuery string, limit int, offset int) ([]int, int, error) {
+func SearchNIK(es *elasticsearch.Client, nikQuery string, limit int, offset int, sortOrder string) ([]int, int, error) {
+	// 1. Panggil helper sorting
+	sortStr := getElasticSortStr("nik", sortOrder)
+
 	// Query pencarian dengan wildcard
 	queryBody := fmt.Sprintf(`{
 		"from": %d,
         "size": %d,
+		"track_total_hits": true,
 		"query": {
 			"wildcard": {
 				"nik": {
@@ -104,7 +122,8 @@ func SearchNIK(es *elasticsearch.Client, nikQuery string, limit int, offset int)
 				}
 			}
 		}
-	}`, offset, limit, nikQuery)
+		%s
+	}`, offset, limit, nikQuery, sortStr)
 
 	res, err := es.Search(
 		es.Search.WithContext(context.Background()),
@@ -146,10 +165,14 @@ func SearchNIK(es *elasticsearch.Client, nikQuery string, limit int, offset int)
 }
 
 // SearchPhone mencari dokumen berdasarkan potongan nomor telepon
-func SearchPhone(es *elasticsearch.Client, phoneQuery string, limit int, offset int) ([]int, int, error) {
+func SearchPhone(es *elasticsearch.Client, phoneQuery string, limit int, offset int, sortOrder string) ([]int, int, error) {
+	// 1. Panggil helper sorting
+	sortStr := getElasticSortStr("phone", sortOrder)
+
 	queryBody := fmt.Sprintf(`{
 		"from": %d,
 		"size": %d,
+		"track_total_hits": true,
 		"query": {
 			"wildcard": {
 				"phone": {
@@ -157,7 +180,8 @@ func SearchPhone(es *elasticsearch.Client, phoneQuery string, limit int, offset 
 				}
 			}
 		}
-	}`, offset, limit, phoneQuery)
+		%s
+	}`, offset, limit, phoneQuery, sortStr)
 
 	// untuk default "wildcard" sama seperti query Like (case sensitive)
 	// Jika ingin seperti query "ILIKE" (case insensitive) maka harus menggunakan
@@ -202,24 +226,16 @@ func SearchPhone(es *elasticsearch.Client, phoneQuery string, limit int, offset 
 }
 
 // SearchNama mencari dokumen berdasarkan nama dengan toleransi salah ketik (typo)
-func SearchNama(es *elasticsearch.Client, namaQuery string, limit int, offset int) ([]int, int, error) {
-	// // Menggunakan "match" dan "fuzziness" agar "Andy" tetap cocok dengan "Andi"
-	// queryBody := fmt.Sprintf(`{
-	// 	"query": {
-	// 		"match": {
-	// 			"nama": {
-	// 				"query": "%s",
-	// 				"fuzziness": "AUTO"
-	// 			}
-	// 		}
-	// 	}
-	// }`, namaQuery)
+func SearchNama(es *elasticsearch.Client, namaQuery string, limit int, offset int, sortOrder string) ([]int, int, error) {
+	// 1. Panggil helper sorting
+	sortStr := getElasticSortStr("nama", sortOrder)
 
 	// Menggunakan wildcard pada "nama.keyword" dipadukan dengan case_insensitive: true.
 	// Jika user mengetik "an", maka "Andi", "Anton", "Hasan" akan langsung ditemukan.
 	queryBody := fmt.Sprintf(`{
 		"from": %d,
 		"size": %d,
+		"track_total_hits": true,
 		"query": {
 			"wildcard": {
 				"nama.keyword": {
@@ -228,7 +244,8 @@ func SearchNama(es *elasticsearch.Client, namaQuery string, limit int, offset in
 				}
 			}
 		}
-	}`, offset, limit, namaQuery)
+		%s
+	}`, offset, limit, namaQuery, sortStr)
 
 	res, err := es.Search(
 		es.Search.WithContext(context.Background()),
@@ -290,52 +307,6 @@ func DeleteKaryawan(es *elasticsearch.Client, id int) error {
 	}
 
 	return nil
-}
-
-// GetAllSortedByNIK mengambil semua ID dari Elastic yang sudah diurutkan berdasarkan NIK ASC
-func GetAllSortedByNIK(es *elasticsearch.Client, limit int, offset int) ([]int, int, error) {
-	queryBody := fmt.Sprintf(`{
-		"from": %d,
-        "size": %d,
-		"track_total_hits": true,
-		"query": { "match_all": {} },
-		"sort": [ { "nik.keyword": { "order": "asc" } } ]
-	}`, offset, limit)
-
-	res, err := es.Search(
-		es.Search.WithContext(context.Background()),
-		es.Search.WithIndex("karyawan_index"),
-		es.Search.WithBody(bytes.NewReader([]byte(queryBody))),
-	)
-	if err != nil || res.IsError() {
-		return nil, 0, fmt.Errorf("gagal sort NIK di elastic: %s", res.String())
-	}
-	defer res.Body.Close()
-
-	var result map[string]interface{}
-	json.NewDecoder(res.Body).Decode(&result)
-
-	var ids []int
-	totalData := 0
-
-	if hitsData, ok := result["hits"].(map[string]interface{}); ok {
-		// Ambil total data dari elastic
-		if totalMap, ok := hitsData["total"].(map[string]interface{}); ok {
-			if totalVal, ok := totalMap["value"].(float64); ok {
-				totalData = int(totalVal)
-			}
-		}
-
-		if hitsList, ok := hitsData["hits"].([]interface{}); ok {
-			for _, hit := range hitsList {
-				docID := hit.(map[string]interface{})["_id"].(string)
-				var id int
-				fmt.Sscanf(docID, "%d", &id)
-				ids = append(ids, id)
-			}
-		}
-	}
-	return ids, totalData, nil
 }
 
 // GetPhoneProviderStats melakukan GROUP BY (Agregasi) berdasarkan 4 angka awalan telepon
