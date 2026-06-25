@@ -85,7 +85,7 @@ func main() {
 	http.HandleFunc("/api/karyawan/create", karyawanHandler.CreateKaryawanHandler)            // CREATE
 	http.HandleFunc("/api/karyawan/update", karyawanHandler.UpdateKaryawanHandler)            // UPDATE
 	http.HandleFunc("/api/karyawan/delete", karyawanHandler.DeleteKaryawanHandler)            // DELETE
-	http.HandleFunc("/api/karyawan/search/nik", karyawanHandler.GetKaryawanByNIKHandler)      // SEARCH VIA ES
+	http.HandleFunc("/api/karyawan/search/nik", karyawanHandler.GetKaryawanByNIKHandler)      // SEARCH NIK VIA ES
 	http.HandleFunc("/api/karyawan/search/name/es", karyawanHandler.GetKaryawanByNameHandler) // SEARCH BY NAMA via ELASTIC
 	http.HandleFunc("/api/karyawan/stats/provider", karyawanHandler.GetProviderStatsHandler)  // STATS PROVIDER
 	http.HandleFunc("/api/karyawan/sync", karyawanHandler.SyncKaryawanHandler)                // SYNC POSTGRES KE ELASTIC (BACKGROUND)
@@ -94,6 +94,13 @@ func main() {
 	http.HandleFunc("/api/karyawan/search/phone", karyawanHandler.GetKaryawanByPhoneHandler)  // SEARCH BY PHONE NUMBER
 	http.HandleFunc("/api/karyawan/decrypt", karyawanHandler.DecryptDataHandler)              // DECRYPT CIPHERTEXT
 	http.HandleFunc("/api/karyawan/clone-plain", karyawanHandler.ClonePlaintextHandler)
+
+	// Route GET Benchmark Table Plaintext
+	http.HandleFunc("/api/plain/karyawan", karyawanHandler.GetAllKaryawanPlainHandler)         // GET ALL PLAIN
+	http.HandleFunc("/api/plain/karyawan/detail", karyawanHandler.GetKaryawanByIDPlainHandler) // GET BY ID PLAIN
+	http.HandleFunc("/api/plain/karyawan/search/name/pg", karyawanHandler.SearchPlainHandler)  // SEARCH NAMA PLAIN
+	http.HandleFunc("/api/plain/karyawan/search/nik", karyawanHandler.SearchPlainHandler)      // SEARCH NIK PLAIN
+	http.HandleFunc("/api/plain/karyawan/search/phone", karyawanHandler.SearchPlainHandler)    // SEARCH PHONE PLAIN
 
 	// Menjalankan Server HTTP
 	port := ":8080"

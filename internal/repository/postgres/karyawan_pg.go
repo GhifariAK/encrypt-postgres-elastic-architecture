@@ -23,6 +23,7 @@ type Karyawan struct {
 }
 
 // Helper Untuk Mencegah SQL Injection pada ORDER BY
+// Contohnya penyerang tidak bisa memasukkan request ?sort_by=id; DROP TABLE karyawan;
 func getSafeOrderBy(sortBy string, sortOrder string) string {
 	// Whitelist kolom yang diizinkan untuk di-sort
 	allowedFields := map[string]string{
