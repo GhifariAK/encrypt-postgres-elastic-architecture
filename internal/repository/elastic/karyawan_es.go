@@ -22,7 +22,13 @@ func getElasticSortStr(field string, sortOrder string) string {
 		order = "desc"
 	}
 
-	return fmt.Sprintf(`, "sort": [ { "%s.keyword": { "order": "%s" } } ]`, field, order)
+	// Mencegah error jika user meminta sort kolom yang tidak diindeks di Elastic
+	actualField := "_id" // Fallback jika sort_by=id atau kolom lain
+	if field == "nama" || field == "nik" || field == "phone" {
+		actualField = field + ".keyword"
+	}
+
+	return fmt.Sprintf(`, "sort": [ { "%s.keyword": { "order": "%s" } } ]`, actualField, order)
 }
 
 // SetupIndex memastikan tabel Elasticsearch dibuat menggunakan tipe data "wildcard"
@@ -106,9 +112,9 @@ func IndexKaryawan(es *elasticsearch.Client, id int, nama, nikAsli, phoneAsli st
 	return nil
 }
 
-func SearchNIK(es *elasticsearch.Client, nikQuery string, limit int, offset int, sortOrder string) ([]int, int, error) {
+func SearchNIK(es *elasticsearch.Client, nikQuery string, limit int, offset int, sortBy string, sortOrder string) ([]int, int, error) {
 	// 1. Panggil helper sorting
-	sortStr := getElasticSortStr("nik", sortOrder)
+	sortStr := getElasticSortStr(sortBy, sortOrder)
 
 	// Query pencarian dengan wildcard
 	queryBody := fmt.Sprintf(`{
@@ -165,9 +171,9 @@ func SearchNIK(es *elasticsearch.Client, nikQuery string, limit int, offset int,
 }
 
 // SearchPhone mencari dokumen berdasarkan potongan nomor telepon
-func SearchPhone(es *elasticsearch.Client, phoneQuery string, limit int, offset int, sortOrder string) ([]int, int, error) {
+func SearchPhone(es *elasticsearch.Client, phoneQuery string, limit int, offset int, sortBy string, sortOrder string) ([]int, int, error) {
 	// 1. Panggil helper sorting
-	sortStr := getElasticSortStr("phone", sortOrder)
+	sortStr := getElasticSortStr(sortBy, sortOrder)
 
 	queryBody := fmt.Sprintf(`{
 		"from": %d,
@@ -226,9 +232,9 @@ func SearchPhone(es *elasticsearch.Client, phoneQuery string, limit int, offset 
 }
 
 // SearchNama mencari dokumen berdasarkan nama dengan toleransi salah ketik (typo)
-func SearchNama(es *elasticsearch.Client, namaQuery string, limit int, offset int, sortOrder string) ([]int, int, error) {
+func SearchNama(es *elasticsearch.Client, namaQuery string, limit int, offset int, sortBy string, sortOrder string) ([]int, int, error) {
 	// 1. Panggil helper sorting
-	sortStr := getElasticSortStr("nama", sortOrder)
+	sortStr := getElasticSortStr(sortBy, sortOrder)
 
 	// Menggunakan wildcard pada "nama.keyword" dipadukan dengan case_insensitive: true.
 	// Jika user mengetik "an", maka "Andi", "Anton", "Hasan" akan langsung ditemukan.

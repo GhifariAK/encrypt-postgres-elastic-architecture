@@ -222,7 +222,45 @@ func SearchKaryawanByNamePG(db *sql.DB, nama string, limit int, offset int, sort
 	return hasil, nil
 }
 
-// GetKaryawanCount menghitung total seluruh baris data di tabel karyawan
+// SearchKaryawanByJabatanPG mencari data berdasarkan jabatan di Postgres
+func SearchKaryawanByJabatanPG(db *sql.DB, jabatan string, limit int, offset int, sortBy string, sortOrder string) ([]Karyawan, error) {
+	orderClause := getSafeOrderBy(sortBy, sortOrder)
+
+	query := fmt.Sprintf(`SELECT id, nama, jabatan, nik_encrypted, phone_encrypted, is_active, created_at 
+	FROM karyawan 
+	WHERE jabatan ILIKE $1
+	%s
+	LIMIT $2 OFFSET $3`, orderClause)
+
+	searchParam := fmt.Sprintf("%%%s%%", jabatan)
+	rows, err := db.Query(query, searchParam, limit, offset)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var hasil []Karyawan
+	for rows.Next() {
+		var k Karyawan
+		err := rows.Scan(&k.ID, &k.Nama, &k.Jabatan, &k.NIKEncrypted, &k.PhoneEncrypted, &k.IsActive, &k.CreatedAt)
+		if err != nil {
+			return nil, err
+		}
+		hasil = append(hasil, k)
+	}
+	return hasil, nil
+}
+
+func GetCountByFieldPG(db *sql.DB, fieldName string, queryValue string) (int, error) {
+	query := fmt.Sprintf(`SELECT COUNT(id) FROM karyawan WHERE %s ILIKE $1`, fieldName)
+	searchParam := fmt.Sprintf("%%%s%%", queryValue)
+
+	var count int
+	err := db.QueryRow(query, searchParam).Scan(&count)
+	return count, err
+}
+
+// GetCountByFieldPG menghitung total data pencarian (Dinamis untuk Nama dan Jabatan) di Postgres
 func GetKaryawanCount(db *sql.DB) (int, error) {
 	query := `SELECT COUNT(id) FROM karyawan`
 	var count int

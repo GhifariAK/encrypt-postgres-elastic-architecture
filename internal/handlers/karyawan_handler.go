@@ -1,9 +1,11 @@
 package handlers
 
 import (
+	"data-encrypt-be/internal/repository/postgres"
 	"data-encrypt-be/internal/services"
 	"data-encrypt-be/internal/utils"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"strconv"
 	"strings"
@@ -89,12 +91,20 @@ func (h *KaryawanHandler) GetKaryawanByNIKHandler(w http.ResponseWriter, r *http
 		limit = 10
 	}
 
+	sortBy := r.URL.Query().Get("sort_by")
 	sortOrder := r.URL.Query().Get("sort_order")
 
 	offset := (page - 1) * limit
 
+	if sortBy == "" {
+		sortBy = "phone" // API lama otomatis sort by NIK
+	}
+	if sortOrder == "" {
+		sortOrder = "desc"
+	}
+
 	// Memanggil layer service
-	karyawans, totalData, err := h.service.GetKaryawanByNIK(nikAsli, limit, offset, sortOrder)
+	karyawans, totalData, err := h.service.GetKaryawanByNIK(nikAsli, limit, offset, sortBy, sortOrder)
 	if err != nil {
 		utils.SendError(w, http.StatusInternalServerError, "Terjadi kesalahan: "+err.Error())
 		return
@@ -139,12 +149,100 @@ func (h *KaryawanHandler) GetAllKaryawanHandler(w http.ResponseWriter, r *http.R
 		limit = 10 // Default 10 data per halaman
 	}
 
+	// Ambil parameter search
+	idStr := r.URL.Query().Get("id")
+	nik := r.URL.Query().Get("nik")
+	phone := r.URL.Query().Get("phone")
+	nama := r.URL.Query().Get("nama")
+	jabatan := r.URL.Query().Get("jabatan")
+
+	// Ambil parameter sorting
 	sortBy := r.URL.Query().Get("sort_by")
 	sortOrder := r.URL.Query().Get("sort_order")
 
 	offset := (page - 1) * limit
 
-	karyawans, totalData, err := h.service.GetAllKaryawan(limit, offset, sortBy, sortOrder)
+	// Default kalau sortby kosong
+	defaultSortBy := "id" // Fallback paling akhir
+	if nama != "" {
+		defaultSortBy = "nama"
+	} else if nik != "" {
+		defaultSortBy = "nik"
+	} else if phone != "" {
+		defaultSortBy = "phone"
+	} else if jabatan != "" {
+		defaultSortBy = "jabatan"
+	}
+
+	// Cek apakah user sengaja memasukkan custom sort_by
+	isCustomSort := sortBy != ""
+
+	// Terapkan default jika kosong
+	if sortBy == "" && sortOrder == "" {
+		sortBy = defaultSortBy
+		sortOrder = "desc"
+	} else if sortBy != "" && sortOrder == "" {
+		sortOrder = "desc"
+	} else if sortBy == "" && sortOrder != "" {
+		sortBy = defaultSortBy
+	}
+
+	warningMsg := ""
+	isElasticRoute := idStr == "" && (nik != "" || phone != "" || nama != "")
+
+	// Jika masuk rute Elastic, TAPI user maksa sort pakai kolom di luar Elastic
+	if isElasticRoute && isCustomSort {
+		if sortBy != "nama" && sortBy != "nik" && sortBy != "phone" && sortBy != "id" {
+			warningMsg = fmt.Sprintf(" [NOTE: Kolom '%s' belum diindeks di Elastic, otomatis fallback sort by ID]", sortBy)
+		}
+	}
+
+	var karyawans interface{}
+	var totalData int
+	var sumber string
+
+	// DECISION TREE
+	if idStr != "" {
+		id, errParse := strconv.Atoi(idStr)
+		if errParse != nil {
+			utils.SendError(w, http.StatusBadRequest, "Parameter 'id' harus berupa angka")
+			return
+		}
+
+		var k *postgres.Karyawan
+		k, err = h.service.GetKaryawanByID(id)
+
+		if k != nil {
+			karyawans = []postgres.Karyawan{*k}
+			totalData = 1
+		} else {
+			karyawans = []postgres.Karyawan{}
+			totalData = 0
+		}
+		sumber = "[BENCHMARK] Unified Search: By Exact ID (Postgres + Decrypt)"
+
+	} else if nik != "" {
+		karyawans, totalData, err = h.service.GetKaryawanByNIK(nik, limit, offset, sortBy, sortOrder)
+		sumber = "[BENCHMARK] Unified Search: By NIK (Elasticsearch)" + warningMsg
+
+	} else if phone != "" {
+		karyawans, totalData, err = h.service.GetKaryawanByPhone(phone, limit, offset, sortBy, sortOrder)
+		sumber = "[BENCHMARK] Unified Search: By Phone (Elasticsearch)" + warningMsg
+
+	} else if nama != "" {
+		karyawans, totalData, err = h.service.GetKaryawanByName(nama, limit, offset, sortBy, sortOrder)
+		sumber = "[BENCHMARK] Unified Search: By Nama (Elasticsearch)" + warningMsg
+
+	} else if jabatan != "" {
+		karyawans, totalData, err = h.service.GetKaryawanByJabatan(jabatan, limit, offset, sortBy, sortOrder)
+		sumber = "[BENCHMARK] Unified Search: By Jabatan (Postgres + Decrypt)"
+
+	} else {
+		// Jika semua kosong, jalankan Get All biasa
+		karyawans, totalData, err = h.service.GetAllKaryawan(limit, offset, sortBy, sortOrder)
+		sumber = "[BENCHMARK] Unified Search: Get All Data (Postgres + Decrypt)"
+	}
+
 	if err != nil {
 		utils.SendError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -154,7 +252,7 @@ func (h *KaryawanHandler) GetAllKaryawanHandler(w http.ResponseWriter, r *http.R
 	utils.SendSuccessWithPagination(
 		w,
 		http.StatusOK,
-		"Data berhasil diambil",
+		sumber,
 		karyawans,
 		page,
 		limit,
@@ -295,11 +393,19 @@ func (h *KaryawanHandler) GetKaryawanByPhoneHandler(w http.ResponseWriter, r *ht
 		limit = 10
 	}
 
+	sortBy := r.URL.Query().Get("sort_by")
 	sortOrder := r.URL.Query().Get("sort_order")
 
 	offset := (page - 1) * limit
 
-	karyawans, totalData, err := h.service.GetKaryawanByPhone(telpQuery, limit, offset, sortOrder)
+	if sortBy == "" {
+		sortBy = "phone" // API lama otomatis sort by phone
+	}
+	if sortOrder == "" {
+		sortOrder = "desc"
+	}
+
+	karyawans, totalData, err := h.service.GetKaryawanByPhone(telpQuery, limit, offset, sortBy, sortOrder)
 	if err != nil {
 		utils.SendError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -348,11 +454,19 @@ func (h *KaryawanHandler) GetKaryawanByNameHandler(w http.ResponseWriter, r *htt
 		limit = 10
 	}
 
+	sortBy := r.URL.Query().Get("sort_by")
 	sortOrder := r.URL.Query().Get("sort_order")
+
+	if sortBy == "" {
+		sortBy = "name" // API lama otomatis sort by name
+	}
+	if sortOrder == "" {
+		sortOrder = "desc"
+	}
 
 	offset := (page - 1) * limit
 
-	karyawans, totalData, err := h.service.GetKaryawanByName(namaQuery, limit, offset, sortOrder)
+	karyawans, totalData, err := h.service.GetKaryawanByName(namaQuery, limit, offset, sortBy, sortOrder)
 	if err != nil {
 		utils.SendError(w, http.StatusInternalServerError, err.Error())
 		return
