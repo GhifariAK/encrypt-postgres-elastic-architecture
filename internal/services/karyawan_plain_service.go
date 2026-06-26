@@ -20,8 +20,8 @@ func (s *KaryawanService) GetKaryawanByIDPlain(id int) (*postgres.Karyawan, erro
 }
 
 // SearchNamaPlain jalur bypass pencarian nama tanpa AES
-func (s *KaryawanService) SearchNamaPlain(namaQuery string, limit int, offset int, sortOrder string) ([]postgres.Karyawan, int, error) {
-	karyawans, err := postgres.SearchKaryawanByNamePlain(s.db, namaQuery, limit, offset, sortOrder)
+func (s *KaryawanService) SearchNamaPlain(namaQuery string, limit int, offset int, sortBy string, sortOrder string) ([]postgres.Karyawan, int, error) {
+	karyawans, err := postgres.SearchKaryawanByNamePlain(s.db, namaQuery, limit, offset, sortBy, sortOrder)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -30,8 +30,8 @@ func (s *KaryawanService) SearchNamaPlain(namaQuery string, limit int, offset in
 }
 
 // SearchNIKPlain jalur bypass pencarian NIK tanpa Elastic dan tanpa AES
-func (s *KaryawanService) SearchNIKPlain(nikQuery string, limit int, offset int, sortOrder string) ([]postgres.Karyawan, int, error) {
-	karyawans, err := postgres.SearchKaryawanByNIKPlain(s.db, nikQuery, limit, offset, sortOrder)
+func (s *KaryawanService) SearchNIKPlain(nikQuery string, limit int, offset int, sortBy string, sortOrder string) ([]postgres.Karyawan, int, error) {
+	karyawans, err := postgres.SearchKaryawanByNIKPlain(s.db, nikQuery, limit, offset, sortBy, sortOrder)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -40,11 +40,20 @@ func (s *KaryawanService) SearchNIKPlain(nikQuery string, limit int, offset int,
 }
 
 // SearchPhonePlain jalur bypass pencarian Phone tanpa Elastic dan tanpa AES
-func (s *KaryawanService) SearchPhonePlain(phoneQuery string, limit int, offset int, sortOrder string) ([]postgres.Karyawan, int, error) {
-	karyawans, err := postgres.SearchKaryawanByPhonePlain(s.db, phoneQuery, limit, offset, sortOrder)
+func (s *KaryawanService) SearchPhonePlain(phoneQuery string, limit int, offset int, sortBy string, sortOrder string) ([]postgres.Karyawan, int, error) {
+	karyawans, err := postgres.SearchKaryawanByPhonePlain(s.db, phoneQuery, limit, offset, sortBy, sortOrder)
 	if err != nil {
 		return nil, 0, err
 	}
 	totalData, err := postgres.GetCountByFieldPlain(s.db, "phone", phoneQuery)
+	return karyawans, totalData, err
+}
+
+func (s *KaryawanService) SearchJabatanPlain(jabatanQuery string, limit int, offset int, sortBy string, sortOrder string) ([]postgres.Karyawan, int, error) {
+	karyawans, err := postgres.SearchKaryawanByJabatanPlain(s.db, jabatanQuery, limit, offset, sortBy, sortOrder)
+	if err != nil {
+		return nil, 0, err
+	}
+	totalData, err := postgres.GetCountByFieldPlain(s.db, "jabatan", jabatanQuery)
 	return karyawans, totalData, err
 }

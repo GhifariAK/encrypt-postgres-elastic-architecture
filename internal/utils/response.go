@@ -6,7 +6,7 @@ import (
 	"net/http"
 )
 
-// JSONResponse adalah cetakan universal untuk semua endpoint API
+// JSONResponse adalah blueprint universal untuk semua endpoint API
 type JSONResponse struct {
 	Success    bool        `json:"success"`
 	Message    string      `json:"message"`

@@ -78,9 +78,9 @@ func GetKaryawanByIDPlain(db *sql.DB, id int) (*Karyawan, error) {
 }
 
 // SearchKaryawanByNamePlain mencari data nama (ILIKE) di tabel plaintext
-func SearchKaryawanByNamePlain(db *sql.DB, nama string, limit int, offset int, sortOrder string) ([]Karyawan, error) {
+func SearchKaryawanByNamePlain(db *sql.DB, nama string, limit int, offset int, sortBy string, sortOrder string) ([]Karyawan, error) {
 
-	orderClause := getSafeOrderByPlain("nama", sortOrder)
+	orderClause := getSafeOrderByPlain(sortBy, sortOrder)
 
 	query := fmt.Sprintf(`SELECT id, nama, jabatan, nik, phone, is_active, created_at 
 	FROM karyawan_plaintext 
@@ -110,8 +110,8 @@ func SearchKaryawanByNamePlain(db *sql.DB, nama string, limit int, offset int, s
 }
 
 // SearchKaryawanByNIKPlain mencari data NIK menggunakan LIKE (Murni Postgres)
-func SearchKaryawanByNIKPlain(db *sql.DB, nik string, limit int, offset int, sortOrder string) ([]Karyawan, error) {
-	orderClause := getSafeOrderByPlain("nik", sortOrder)
+func SearchKaryawanByNIKPlain(db *sql.DB, nik string, limit int, offset int, sortBy string, sortOrder string) ([]Karyawan, error) {
+	orderClause := getSafeOrderByPlain(sortBy, sortOrder)
 	query := fmt.Sprintf(`SELECT id, nama, jabatan, nik, phone, is_active, created_at FROM karyawan_plaintext WHERE nik LIKE $1 %s LIMIT $2 OFFSET $3`, orderClause)
 
 	searchParam := fmt.Sprintf("%%%s%%", nik)
@@ -136,12 +136,64 @@ func SearchKaryawanByNIKPlain(db *sql.DB, nik string, limit int, offset int, sor
 }
 
 // SearchKaryawanByPhonePlain mencari data Phone menggunakan LIKE (Murni Postgres)
-func SearchKaryawanByPhonePlain(db *sql.DB, phone string, limit int, offset int, sortOrder string) ([]Karyawan, error) {
-	orderClause := getSafeOrderByPlain("phone", sortOrder)
+func SearchKaryawanByPhonePlain(db *sql.DB, phone string, limit int, offset int, sortBy string, sortOrder string) ([]Karyawan, error) {
+	orderClause := getSafeOrderByPlain(sortBy, sortOrder)
 	query := fmt.Sprintf(`SELECT id, nama, jabatan, nik, phone, is_active, created_at FROM karyawan_plaintext WHERE phone LIKE $1 %s LIMIT $2 OFFSET $3`, orderClause)
 
 	searchParam := fmt.Sprintf("%%%s%%", phone)
 	rows, err := db.Query(query, searchParam, limit, offset)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var hasil []Karyawan
+	for rows.Next() {
+		var k Karyawan
+		err := rows.Scan(&k.ID, &k.Nama, &k.Jabatan, &k.NIKDecrypted, &k.PhoneDecrypted, &k.IsActive, &k.CreatedAt)
+		if err != nil {
+			return nil, err
+		}
+		k.NIKEncrypted = k.NIKDecrypted
+		k.PhoneEncrypted = k.PhoneDecrypted
+		hasil = append(hasil, k)
+	}
+	return hasil, nil
+}
+
+// SearchKaryawanByJabatanPlain mencari data Jabatan menggunakan ILIKE (Murni Postgres)
+func SearchKaryawanByJabatanPlain(db *sql.DB, jabatan string, limit int, offset int, sortBy string, sortOrder string) ([]Karyawan, error) {
+	orderClause := getSafeOrderByPlain(sortBy, sortOrder)
+	query := fmt.Sprintf(`SELECT id, nama, jabatan, nik, phone, is_active, created_at FROM karyawan_plaintext WHERE jabatan ILIKE $1 %s LIMIT $2 OFFSET $3`, orderClause)
+	searchParam := fmt.Sprintf("%%%s%%", jabatan)
+
+	rows, err := db.Query(query, searchParam, limit, offset)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var hasil []Karyawan
+	//... (sama seperti di atas)
+	for rows.Next() {
+		var k Karyawan
+		err := rows.Scan(&k.ID, &k.Nama, &k.Jabatan, &k.NIKDecrypted, &k.PhoneDecrypted, &k.IsActive, &k.CreatedAt)
+		if err != nil {
+			return nil, err
+		}
+		k.NIKEncrypted = k.NIKDecrypted
+		k.PhoneEncrypted = k.PhoneDecrypted
+		hasil = append(hasil, k)
+	}
+	return hasil, nil
+}
+
+// SearchKaryawanByIsActivePlain mencari data IsActive menggunakan boolean (Murni Postgres)
+func SearchKaryawanByIsActivePlain(db *sql.DB, isActive bool, limit int, offset int, sortBy string, sortOrder string) ([]Karyawan, error) {
+	orderClause := getSafeOrderByPlain(sortBy, sortOrder)
+	query := fmt.Sprintf(`SELECT id, nama, jabatan, nik, phone, is_active, created_at FROM karyawan_plaintext WHERE is_active = $1 %s LIMIT $2 OFFSET $3`, orderClause)
+
+	rows, err := db.Query(query, isActive, limit, offset)
 	if err != nil {
 		return nil, err
 	}

@@ -22,7 +22,7 @@ func EncryptAES(plaintext string, secretKey string) (string, error) {
 	}
 
 	// Nonce (Initialization Vector) acak agar jika ada 2 NIK yang sama,
-	// hasil enkripsinya di database tetap berbeda (Sangat aman dari pola hacker)
+	// hasil enkripsinya di database tetap berbeda
 	nonce := make([]byte, aesGCM.NonceSize())
 	if _, err = io.ReadFull(rand.Reader, nonce); err != nil {
 		return "", err

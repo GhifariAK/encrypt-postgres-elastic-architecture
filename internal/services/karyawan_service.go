@@ -80,6 +80,7 @@ func (s *KaryawanService) RegisterKaryawan(nama, divisi, nikAsli, phoneAsli stri
 	// Biarkan ada service/worker lain di background yang bertugas mengambil data
 	// dari antrean RabbitMQ untuk dimasukkan ke Elasticsearch.
 	// Ini memastikan Postgres tidak perlu di-rollback jika Elastic sedang down.
+	// Hal tersebut dilakukan untuk method Create, Update, dan Delete.
 
 	// 3. Simpan Plaintext ke Elasticsearch menggunakan ID dari Postgres
 	err = elastic.IndexKaryawan(s.esClient, karyawanID, nama, nikAsli, phoneAsli)
@@ -139,6 +140,7 @@ func (s *KaryawanService) GetAllKaryawan(limit int, offset int, sortBy string, s
 		}
 	}
 	return karyawans, totalData, nil
+
 }
 
 // GetKaryawanByID mengambil satu data spesifik dan mendekripsinya
