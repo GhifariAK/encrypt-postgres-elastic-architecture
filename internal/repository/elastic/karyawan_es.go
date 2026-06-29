@@ -22,13 +22,15 @@ func getElasticSortStr(field string, sortOrder string) string {
 		order = "desc"
 	}
 
-	// Mencegah error jika user meminta sort kolom yang tidak diindeks di Elastic
-	actualField := "_id" // Fallback jika sort_by=id atau kolom lain
+	// Hanya kolom yang benar-benar ada di index Elastic yang dikirimkan perintah sort-nya
 	if field == "nama" || field == "nik" || field == "phone" {
-		actualField = field + ".keyword"
+		return fmt.Sprintf(`, "sort": [ { "%s.keyword": { "order": "%s" } } ]`, field, order)
 	}
 
-	return fmt.Sprintf(`, "sort": [ { "%s.keyword": { "order": "%s" } } ]`, actualField, order)
+	// JIKA JABATAN ATAU ID (Fallback aman)
+	// Kita kembalikan string kosong agar Elastic TIDAK ERROR.
+	// Elastic otomatis akan mengurutkan by _score (relevansi pencarian).
+	return ""
 }
 
 // SetupIndex memastikan tabel Elasticsearch dibuat menggunakan tipe data "wildcard"
@@ -259,8 +261,12 @@ func SearchNama(es *elasticsearch.Client, namaQuery string, limit int, offset in
 		es.Search.WithBody(bytes.NewReader([]byte(queryBody))),
 	)
 
-	if err != nil || res.IsError() {
-		return nil, 0, fmt.Errorf("gagal mencari nama di elastic")
+	if err != nil {
+		return nil, 0, fmt.Errorf("gagal mencari nama di elastic: %v", err)
+	}
+	if res.IsError() {
+		// Ini akan mencetak pesan error asli langsung dari Elasticsearch ke Postman
+		return nil, 0, fmt.Errorf("Ditolak Elasticsearch: %s", res.String())
 	}
 	defer res.Body.Close()
 

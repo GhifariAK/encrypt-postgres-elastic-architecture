@@ -97,7 +97,7 @@ func (h *KaryawanHandler) GetKaryawanByNIKHandler(w http.ResponseWriter, r *http
 	offset := (page - 1) * limit
 
 	if sortBy == "" {
-		sortBy = "phone" // API lama otomatis sort by NIK
+		sortBy = "nik" // API lama otomatis sort by NIK
 	}
 	if sortOrder == "" {
 		sortOrder = "desc"
@@ -192,8 +192,8 @@ func (h *KaryawanHandler) GetAllKaryawanHandler(w http.ResponseWriter, r *http.R
 
 	// Jika masuk rute Elastic, TAPI user maksa sort pakai kolom di luar Elastic
 	if isElasticRoute && isCustomSort {
-		if sortBy != "nama" && sortBy != "nik" && sortBy != "phone" && sortBy != "id" {
-			warningMsg = fmt.Sprintf(" [NOTE: Kolom '%s' belum diindeks di Elastic, otomatis fallback sort by ID]", sortBy)
+		if sortBy != "nama" && sortBy != "nik" && sortBy != "phone" {
+			warningMsg = fmt.Sprintf(" [NOTE: Kolom '%s' tidak bisa di sort, karena tidak diindeks pada Elastic, sorting ignored]", sortBy)
 		}
 	}
 
@@ -458,7 +458,7 @@ func (h *KaryawanHandler) GetKaryawanByNameHandler(w http.ResponseWriter, r *htt
 	sortOrder := r.URL.Query().Get("sort_order")
 
 	if sortBy == "" {
-		sortBy = "name" // API lama otomatis sort by name
+		sortBy = "nama" // API lama otomatis sort by name
 	}
 	if sortOrder == "" {
 		sortOrder = "desc"
