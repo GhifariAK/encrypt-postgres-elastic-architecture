@@ -107,7 +107,7 @@ func (h *KaryawanHandler) GetAllKaryawanPlainHandler(w http.ResponseWriter, r *h
 		return
 	}
 
-	utils.SendSuccessWithPagination(w, http.StatusOK, sumber, karyawans, page, limit, totalData)
+	utils.SendSuccessWithPagination(w, http.StatusOK, sumber, karyawans, page, limit, totalData, "")
 }
 
 // GetKaryawanByIDPlainHandler untuk endpoint GET /api/plain/karyawan/detail?id=X
@@ -196,5 +196,5 @@ func (h *KaryawanHandler) SearchPlainHandler(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	utils.SendSuccessWithPagination(w, http.StatusOK, sumber, karyawans, page, limit, totalData)
+	utils.SendSuccessWithPagination(w, http.StatusOK, sumber, karyawans, page, limit, totalData, "")
 }

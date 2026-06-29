@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 )
 
 type KaryawanHandler struct {
@@ -124,6 +125,7 @@ func (h *KaryawanHandler) GetKaryawanByNIKHandler(w http.ResponseWriter, r *http
 		page,
 		limit,
 		totalData,
+		"",
 	)
 }
 
@@ -248,6 +250,21 @@ func (h *KaryawanHandler) GetAllKaryawanHandler(w http.ResponseWriter, r *http.R
 		return
 	}
 
+	var extractedIDs []int
+
+	// Ekstrak ID dari hasil pencarian
+	if kList, ok := karyawans.([]postgres.Karyawan); ok {
+		for _, k := range kList {
+			extractedIDs = append(extractedIDs, k.ID)
+		}
+	}
+
+	requestID := ""
+	if len(extractedIDs) > 0 {
+		requestID = utils.GenerateRequestID()
+		utils.RequestCache.Set(requestID, extractedIDs, 5*time.Minute)
+	}
+
 	// Menggunakan SendSuccessWithPagination pusat
 	utils.SendSuccessWithPagination(
 		w,
@@ -257,6 +274,7 @@ func (h *KaryawanHandler) GetAllKaryawanHandler(w http.ResponseWriter, r *http.R
 		page,
 		limit,
 		totalData,
+		requestID,
 	)
 }
 
@@ -424,6 +442,7 @@ func (h *KaryawanHandler) GetKaryawanByPhoneHandler(w http.ResponseWriter, r *ht
 		page,
 		limit,
 		totalData,
+		"",
 	)
 }
 
@@ -480,6 +499,7 @@ func (h *KaryawanHandler) GetKaryawanByNameHandler(w http.ResponseWriter, r *htt
 		page,
 		limit,
 		totalData,
+		"",
 	)
 }
 
@@ -587,6 +607,7 @@ func (h *KaryawanHandler) SearchNamePGHandler(w http.ResponseWriter, r *http.Req
 		page,
 		limit,
 		totalData,
+		"",
 	)
 }
 
@@ -644,4 +665,43 @@ func (h *KaryawanHandler) ClonePlaintextHandler(w http.ResponseWriter, r *http.R
 	go h.service.CloneToPlaintext()
 
 	utils.SendSuccess(w, http.StatusOK, "Proses cloning ke tabel plaintext sedang berjalan di background. Silakan cek log terminal!", nil)
+}
+
+type RevealRequest struct {
+	RequestID string `json:"request_id"`
+}
+
+// RevealKaryawanHandler menangani POST /api/karyawan/reveal
+func (h *KaryawanHandler) RevealKaryawanHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		utils.SendError(w, http.StatusMethodNotAllowed, "Metode HTTP harus POST")
+		return
+	}
+
+	var req RevealRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		utils.SendError(w, http.StatusBadRequest, "Format JSON salah")
+		return
+	}
+
+	if req.RequestID == "" {
+		utils.SendError(w, http.StatusBadRequest, "request_id wajib dikirim")
+		return
+	}
+
+	// 1. Cek didalam memori berdasarkan request_id
+	ids, exists := utils.RequestCache.Get(req.RequestID)
+	if !exists {
+		utils.SendError(w, http.StatusNotFound, "Request ID tidak valid atau sudah kedaluwarsa (lebih dari 5 menit)")
+		return
+	}
+
+	// 2. Minta Service untuk mendekripsi data spesifik tersebut
+	revealedData, err := h.service.RevealKaryawan(ids)
+	if err != nil {
+		utils.SendError(w, http.StatusInternalServerError, "Gagal mendekripsi data: "+err.Error())
+		return
+	}
+
+	utils.SendSuccess(w, http.StatusOK, "Berhasil membuka (Reveal) data rahasia", revealedData)
 }

@@ -430,3 +430,42 @@ func (s *KaryawanService) CloneToPlaintext() {
 	}
 	fmt.Println("✅ SELESAI! Seluruh data sukses disalin ke tabel karyawan_plaintext.")
 }
+
+// Struct khusus untuk membalas hasil Reveal (Hanya data esensial)
+type RevealResponse struct {
+	ID      int    `json:"id"`
+	Nama    string `json:"nama"`
+	Jabatan string `json:"jabatan"`
+	NIK     string `json:"nik_asli"`
+	Phone   string `json:"phone_asli"`
+}
+
+// RevealKaryawan mengambil ID spesifik dari Postgres dan mengembalikan data yang sudah terdekripsi (Plaintext)
+func (s *KaryawanService) RevealKaryawan(ids []int) ([]RevealResponse, error) {
+	if len(ids) == 0 {
+		return []RevealResponse{}, nil
+	}
+
+	// 1. Ambil data mentah dari Postgres berdasarkan kumpulan ID
+	karyawans, err := postgres.GetKaryawanByIDs(s.db, ids)
+	if err != nil {
+		return nil, err
+	}
+
+	// 2. Dekripsi dan ubah bentuknya ke Struct Reveal
+	var revealedData []RevealResponse
+	for _, k := range karyawans {
+		nikDec, _ := crypto.DecryptAES(k.NIKEncrypted, s.secretKey)
+		phoneDec, _ := crypto.DecryptAES(k.PhoneEncrypted, s.secretKey)
+
+		revealedData = append(revealedData, RevealResponse{
+			ID:      k.ID,
+			Nama:    k.Nama,
+			Jabatan: k.Jabatan,
+			NIK:     nikDec,
+			Phone:   phoneDec,
+		})
+	}
+
+	return revealedData, nil
+}

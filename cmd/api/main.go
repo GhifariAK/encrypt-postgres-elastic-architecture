@@ -11,6 +11,7 @@ import (
 	"data-encrypt-be/internal/handlers"
 	"data-encrypt-be/internal/repository/elastic"
 	"data-encrypt-be/internal/services"
+	"data-encrypt-be/internal/utils"
 
 	"github.com/elastic/go-elasticsearch/v8"
 	_ "github.com/lib/pq"
@@ -108,9 +109,16 @@ func main() {
 	http.HandleFunc("/api/plain/karyawan/search/nik", karyawanHandler.SearchPlainHandler)     // SEARCH NIK PLAIN
 	http.HandleFunc("/api/plain/karyawan/search/phone", karyawanHandler.SearchPlainHandler)   // SEARCH PHONE PLAIN
 
+	// Route Get Reveal Encrypted Data
+	http.HandleFunc("/api/karyawan/reveal", karyawanHandler.RevealKaryawanHandler)
+
 	// Menjalankan Server HTTP
 	port := ":8080"
 	log.Printf("Server 'Data-Encrypt-BE' berjalan di http://localhost%s\n", port)
+
+	// Nyalakan In-Memory Garbage Collector di background
+	go utils.RequestCache.StartGarbageCollector()
+	fmt.Println("🧹 In-Memory Garbage Collector berjalan di background...")
 
 	err = http.ListenAndServe(port, nil)
 	if err != nil {
